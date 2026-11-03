@@ -1,0 +1,41 @@
+# 1. 深度学习模型权重 (极容易超出 100MB 限制)
+*.pth
+*.pt
+*.onnx
+*.weights
+*.h5
+*.ckpt
+pretrain/
+
+# 2. 数据集和标注文件 (千万别把训练集传上去)
+datasets/
+images/
+# 如果你用 LabelImg 标注，可以把存放 XML/TXT 标签的独立输出文件夹忽略
+labels/
+Annotations/
+
+# 3. 运行日志与 TensorBoard 结果
+runs/
+logs/
+*.log
+outputs/
+
+# 4. Python 与环境缓存
+__pycache__/
+*.py[cod]
+*$py.class
+.ipynb_checkpoints/
+.vscode/
+
+# 如果你在项目里建了 Miniconda 的虚拟环境文件夹，必须忽略
+envs/
+.conda/
+venv/
+
+# 5. Windows 系统生成的隐藏文件
+Thumbs.db
+desktop.ini
+
+# 6. LatexPaper文件夹，使用latex写论文的文件夹
+paper/
+weights/

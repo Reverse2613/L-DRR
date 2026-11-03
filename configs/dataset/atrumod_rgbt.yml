@@ -1,0 +1,43 @@
+# ==============================================================================
+# ATR-UMOD 成对多模态 (RGB + TIR) 11 类目标与 6 条件数据集配置
+# ==============================================================================
+task: detection
+
+evaluator:
+  type: DotaEvaluator
+  iou_types: ['mAP']
+
+num_classes: 11
+remap_mscoco_category: False
+
+train_dataloader:
+  type: DataLoader
+  dataset:
+    type: ATRUMODPairDataset
+    img_folder: /home/reverse/workspace/data/ATR-UMOD/train/images_ir
+    ann_folder: /home/reverse/workspace/data/ATR-UMOD/train/labels_ir
+    return_masks: False
+    transforms:
+      type: Compose
+      ops: ~
+  shuffle: True
+  num_workers: 4
+  drop_last: True
+  collate_fn:
+    type: BatchImageCollateFunction
+
+val_dataloader:
+  type: DataLoader
+  dataset:
+    type: ATRUMODPairDataset
+    img_folder: /home/reverse/workspace/data/ATR-UMOD/test/images_ir
+    ann_folder: /home/reverse/workspace/data/ATR-UMOD/test/labels_ir
+    return_masks: False
+    transforms:
+      type: Compose
+      ops: ~
+  shuffle: False
+  num_workers: 4
+  drop_last: False
+  collate_fn:
+    type: BatchImageCollateFunction

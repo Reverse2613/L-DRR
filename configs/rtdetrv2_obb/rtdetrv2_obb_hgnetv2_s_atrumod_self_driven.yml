@@ -1,0 +1,138 @@
+# ==============================================================================
+# RT-DETRv2-OBB-Small 消融实验组 (Ablation: 无显式条件监督自驱动门控),
+# 为了查明我的显示条件先验引入到底有无作用
+# 目的: 彻底验证人工 6 维条件标注到底是有益正则化，还是负迁移干扰？
+# 特点: with_aux_heads=False | 严格移除 loss_cond 
+# ==============================================================================
+
+__include__: [
+  '../dataset/atrumod_rgbt.yml',
+  '../runtime.yml',
+  '../base/dataloader.yml',
+  '../base/rtv2_optimizer.yml',
+  '../base/rtv2_r50vd.yml',
+]
+
+output_dir: ./outputs/rtdetrv2_obb_hgnetv2_s_atrumod_self_driven
+
+eval_spatial_size: [512, 640]
+
+RTv4:
+  backbone: DualHGNetv2_LGDense
+  encoder: HybridEncoder
+  decoder: RTDETRTransformerv2OBB
+
+DualHGNetv2_LGDense:
+  name: 'B0'
+  return_idx: [1, 2, 3]
+  freeze_at: -1
+  freeze_norm: False
+  use_lab: True
+  pretrained: True
+  local_model_dir: ./pretrain/hgnetv2/
+  cond_dim: 256
+  with_aux_heads: False                  # <--- 核心切除：不实例化 6 个预测头！
+
+criterion: RTv4OBBCriterion
+
+postprocessor: PostProcessorOBB
+
+PostProcessorOBB:
+  num_top_queries: 300
+  input_shape: [512, 640]
+
+HybridEncoder:
+  in_channels: [256, 512, 1024]
+  feat_strides: [8, 16, 32]
+  hidden_dim: 224
+  version: rt_detrv2
+  expansion: 0.5
+  depth_mult: 0.34
+  eval_spatial_size: [512, 640]
+
+RTDETRTransformerv2OBB:
+  feat_channels: [224, 224, 224]
+  feat_strides: [8, 16, 32]
+  hidden_dim: 224
+  num_levels: 3
+  num_layers: 3
+  num_queries: 300
+  num_denoising: 100
+  label_noise_ratio: 0.5
+  box_noise_scale: 1.0
+  learn_query_content: False
+  eval_idx: -1
+  num_points: [4, 4, 4]
+  cross_attn_method: default
+  query_select_method: default
+  query_pos_method: default
+  anchor_aspect_ratio: 1.0
+  eval_spatial_size: [512, 640]
+
+# 严格移除 loss_cond，纯粹依靠检测任务反传梯度自适应调节门控
+RTv4OBBCriterion:
+  weight_dict: {loss_focal: 1, loss_l1: 5, loss_kld: 5}
+  losses: ['focal', 'l1', 'kld']
+  alpha: 0.75
+  gamma: 2.0
+  use_uni_set: True
+  matcher:
+    type: HungarianMatcherOBB
+    weight_dict: {cost_class: 2, cost_bbox: 0, cost_hausdorff: 5, cost_giou: 5}
+    alpha: 0.25
+    gamma: 2.0
+
+epoches: 36
+checkpoint_freq: 20
+
+lrsheduler: flatcosine
+warmup_iter: 500
+flat_epoch: 18
+no_aug_epoch: 0
+lr_gamma: 0.1
+
+optimizer:
+  type: AdamW
+  params:
+    -
+      params: '^(?=.*backbone)(?=.*norm|bn).*$'
+      lr: 0.00001
+      weight_decay: 0.
+    -
+      params: '^(?=.*(?:encoder|decoder))(?=.*(?:norm|bn)).*$'
+      weight_decay: 0.
+  lr: 0.0001
+  betas: [0.9, 0.999]
+  weight_decay: 0.0001
+
+
+train_dataloader:
+  total_batch_size: 8
+  dataset:
+    transforms:
+      type: Compose
+      ops:
+        - {type: PairedResizeOBB, size: [512, 640]}
+        - {type: PairedSanitizeBoundingBoxesOBB, min_size: 1.0}
+        - {type: PairedConvertPILToTensor, dtype: 'float32', scale: True}
+        - {type: PairedConvertOBB, normalize: True}
+      policy:
+        name: default
+
+  collate_fn:
+    base_size: 640
+    base_size_repeat: ~       #关闭多尺度
+    mixup_prob: 0.0                     
+    stop_epoch: 36
+    ema_restart_decay: 0.9999
+
+val_dataloader:
+  total_batch_size: 16
+  dataset:
+    transforms:
+      type: Compose
+      ops:
+        - {type: PairedResizeOBB, size: [512, 640]}
+        - {type: PairedSanitizeBoundingBoxesOBB, min_size: 1.0}
+        - {type: PairedConvertPILToTensor, dtype: 'float32', scale: True}
+        - {type: PairedConvertOBB, normalize: True}

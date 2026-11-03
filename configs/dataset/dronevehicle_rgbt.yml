@@ -1,0 +1,43 @@
+# ==============================================================================
+# DroneVehicle 成对多模态 (RGB + TIR) 数据集配置
+# ==============================================================================
+task: detection
+
+evaluator:
+  type: DotaEvaluator        # 本地真实 mAP 评估器
+  iou_types: ['mAP']
+
+num_classes: 5               # 5 个机动车类别 (car, truck, bus, van, freight_car)
+remap_mscoco_category: False
+
+train_dataloader:
+  type: DataLoader
+  dataset:
+    type: DroneVehiclePairDataset # 成对多模态防御型加载器
+    img_folder: /home/reverse/workspace/data/DroneVehicle/test/testimgr
+    ann_folder: /home/reverse/workspace/data/DroneVehicle/test/dota_labels_ir
+    return_masks: False
+    transforms:
+      type: Compose
+      ops: ~                 # 具体的多模态算子流水线在模型主 YAML 中声明与覆盖
+  shuffle: True
+  num_workers: 4
+  drop_last: True
+  collate_fn:
+    type: BatchImageCollateFunction
+
+val_dataloader:
+  type: DataLoader
+  dataset:
+    type: DroneVehiclePairDataset
+    img_folder: /home/reverse/workspace/data/DroneVehicle/val/valimgr
+    ann_folder: /home/reverse/workspace/data/DroneVehicle/val/dota_labels_ir
+    return_masks: False
+    transforms:
+      type: Compose
+      ops: ~
+  shuffle: False
+  num_workers: 4
+  drop_last: False
+  collate_fn:
+    type: BatchImageCollateFunction
