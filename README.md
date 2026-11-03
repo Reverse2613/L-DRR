@@ -2,13 +2,28 @@
 
 我已经从RiO-DETR里面抽取出来的最少最小可训练与测试的源代码，作为我本次自己的实验源代码仓库。
 
+## Install and Getting Start
+
+```
+conda create -n rio-detr python=3.10 -y
+conda activate rio-detr
+
+# Install PyTorch and torchvision for your CUDA version first.
+
+pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu121
+
+# if network is no good, maybe u can try add "-i https://pypi.tuna.tsinghua.edu.cn/simple"
+pip install -r requirements.txt
+
+```
+
 ## 数据集
 
 ### ATR-UMOD
 
 - atr-umod_dataset.py（atr-umod数据集训练时数据加载器代码，未完全懂❌）
 - atrumod_condition_parser.py  （显示物理条件解析器，用于推理测试时在不同条件的对比，对单张图片进行六个维度的条件先验分类，__init__.py要同步导入）
-- atrumod_condition_evaluator.py  （条件分流评估器，__init__.py也要同步导入）
+- atrumod_condition_evaluator.py  （条件分流评估器，__init__.py也要同步导入,未完全懂❌）
 - yaml_config.py  (注册 ATRUMODConditionEvaluator 实例化通道，因为原来的rio-detr源代码仓库是硬编码的Evaluator，所以不实例化注册会报错)
 
 
@@ -56,7 +71,7 @@ best score：epoch20，mAP=0.44100
 python train.py -c configs/rtdetrv2_obb/rtdetrv2_obb_hgnetv2_s_atrumod_single_rgb.yml --use-amp
 ```
 
-best score：
+best score：epoch23，mAP=0.324482
 
 ## 基线拼接（S3、S4、S5）
 
