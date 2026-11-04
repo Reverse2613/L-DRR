@@ -103,10 +103,10 @@ class QualGate(nn.Module):
         # ======================================================================
         mid_dim = max(16, aux_channels // reduction)
         self.mlp_qual = nn.Sequential(
-            nn.Linear(aux_channels, mid_dim, bias=False),
-            nn.SiLU(inplace=True),
-            nn.Linear(mid_dim, 1, bias=True),
-            nn.Sigmoid(),
+            nn.Linear(aux_channels, mid_dim, bias=False),#[0],W1
+            nn.SiLU(inplace=True),                       #[1],无参数   
+            nn.Linear(mid_dim, 1, bias=True),            #[2],W2,b2   -->  [-2]
+            nn.Sigmoid(),                                #[3],无参数  -->  [-1]
         )
 
         # ======================================================================
@@ -129,7 +129,7 @@ class QualGate(nn.Module):
         ])
 
         # 在 QualGate.__init__ 末尾调用初始化：
-        self._init_weights()
+        # self._init_weights()
 
     def _init_weights(self):
         """保真零初始化与先验偏置注入 (防止开局特征破坏)."""
