@@ -1,0 +1,147 @@
+# ==============================================================================
+# RT-DETRv2-OBB-Small InfraNet: Quality-Aware RGB Guidance (忠实复现版本)
+# 论文: InfraNet: Quality-Aware RGB Guidance for Efficient Infrared Object Detection (arXiv:2607.03795)
+# ==============================================================================
+
+__include__: [
+  '../dataset/atrumod_rgbt.yml',    # 引用成对多模态数据集配置
+  '../runtime.yml',
+  '../base/dataloader.yml',
+  '../base/rtv2_optimizer.yml',
+  '../base/rtv2_r50vd.yml',
+]
+
+# 独立输出目录，方便与 Concat 基线及单红外模型做消融对比
+output_dir: ./outputs/rtdetrv2_obb_hgnetv2_s_atrumod_infranet
+
+eval_spatial_size: [512, 640]
+# ==============================================================================
+# 显式告诉框架我们要实例化的模型入口是 RTv4_Infranet！
+# ==============================================================================
+model: RTv4_Infranet
+
+RTv4_Infranet:
+  backbone: DualHGNetv2_InfraNet_Improve        # 替换为我们重构的 InfraNet 双流主干
+  encoder: HybridEncoder
+  decoder: RTDETRTransformerv2OBB
+
+# 声明双流对称主干参数
+DualHGNetv2_InfraNet_Improve:
+  name: 'B0'
+  return_idx: [1, 2, 3]
+  freeze_at: -1
+  freeze_norm: False
+  use_lab: True
+  pretrained: True                      # IR 主干加载 ImageNet 预训练权重
+  local_model_dir: ./pretrain/hgnetv2/
+  eval_mode: 'rgb_ir'                       # 默认评测模式: 'ir' (纯红外轻量部署); 可改为 'rgb_ir' (双光融合部署)
+
+#显示告诉框架实例化的模型损失函数计算采用  RTv4OBBCriterion_Infranet
+criterion: RTv4OBBCriterion_Infranet
+
+postprocessor: PostProcessorOBB
+
+PostProcessorOBB:
+  num_top_queries: 300
+  input_shape: [512, 640]
+
+# 混合编码器：接收主干输出的标准 [256, 512, 1024] 特征
+HybridEncoder:
+  in_channels: [256, 512, 1024]
+  version: rt_detrv2
+  expansion: 0.5
+  depth_mult: 0.34
+  hidden_dim: 224
+  eval_spatial_size: [512, 640]
+  
+RTDETRTransformerv2OBB:
+  feat_channels: [224, 224, 224]
+  feat_strides: [8, 16, 32]
+  hidden_dim: 224
+  num_levels: 3
+  num_layers: 3
+  num_queries: 300
+  num_denoising: 100
+  label_noise_ratio: 0.5
+  box_noise_scale: 1.0
+  learn_query_content: False
+  eval_idx: -1
+  num_points: [4, 4, 4]
+  cross_attn_method: default
+  query_select_method: default
+  query_pos_method: default
+  anchor_aspect_ratio: 1.0
+  eval_spatial_size: [512, 640]
+
+RTv4OBBCriterion_Infranet:
+  weight_dict: {loss_focal: 1, loss_l1: 5, loss_kld: 5}
+  losses: ['focal', 'l1', 'kld']
+  alpha: 0.75
+  gamma: 2.0
+  use_uni_set: True
+  matcher:
+    type: HungarianMatcherOBB
+    weight_dict: {cost_class: 2, cost_bbox: 0, cost_hausdorff: 5, cost_giou: 5}
+    alpha: 0.25
+    gamma: 2.0
+
+epoches: 36
+checkpoint_freq: 20                     # 每 20 轮存档一次
+
+lrsheduler: flatcosine
+# 延长 Warmup 到 2 轮 (约 3000 iters), 保证新模块平滑热身
+warmup_iter: 3000
+flat_epoch: 18
+
+optimizer:
+  type: AdamW
+  params:
+    # 组 1: 预训练骨干的主卷积权重 (带 backbone，排除了 qual_gate，排除了所有 norm/bn/bias)
+    - params: '^(?=.*backbone)(?!.*qual_gate)(?!.*(?:norm|bn|bias)).*$'
+      lr: 0.00001
+      weight_decay: 0.0001
+
+    # 组 2: 预训练骨干的 Norm 层与 Bias (带 backbone，排除了 qual_gate，包含 norm/bn/bias) -> 绝不衰减！
+    - params: '^(?=.*backbone)(?!.*qual_gate)(?=.*(?:norm|bn|bias)).*$'
+      lr: 0.00001
+      weight_decay: 0.0
+
+    # 组 3: 新模块与检测头的 Norm 层与 Bias (包含 encoder/decoder/qual_gate 中的 norm/bn/bias) -> 绝不衰减！
+    - params: '^(?=.*(?:encoder|decoder|qual_gate))(?=.*(?:norm|bn|bias)).*$'
+      lr: 0.0001
+      weight_decay: 0.0
+
+  # 默认组 (未被上述正则捕获的其余权重，即 encoder/decoder/qual_gate 的主卷积和线性层权重)
+  lr: 0.0001
+  betas: [0.9, 0.999]
+  weight_decay: 0.0001
+
+train_dataloader:
+  total_batch_size: 8
+  dataset:
+    transforms:
+      type: Compose
+      ops:
+        - {type: PairedResizeOBB, size: [512, 640]}
+        - {type: PairedSanitizeBoundingBoxesOBB, min_size: 1.0}
+        - {type: PairedConvertPILToTensor, dtype: 'float32', scale: True}
+        - {type: PairedConvertOBB, normalize: True}
+      policy:
+        name: default
+  collate_fn:
+    base_size: 640
+    base_size_repeat: ~
+    mixup_prob: 0.0                     
+    stop_epoch: 36
+    ema_restart_decay: 0.9999
+
+val_dataloader:
+  total_batch_size: 16
+  dataset:
+    transforms:
+      type: Compose
+      ops:
+        - {type: PairedResizeOBB, size: [512, 640]}
+        - {type: PairedSanitizeBoundingBoxesOBB, min_size: 1.0}
+        - {type: PairedConvertPILToTensor, dtype: 'float32', scale: True}
+        - {type: PairedConvertOBB, normalize: True}

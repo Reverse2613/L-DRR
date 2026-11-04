@@ -123,7 +123,7 @@ best score：epoch17，mAP=0.51557
 
 ## InfraNet：
 
-### InfraNet no make superior train's setting
+### InfraNet no make superior train's setting（未进行好的训练设置）
 
 对于Infranet论文的复现
 - qual_gate.py  (质量感知融合模块，__init__.py同步导入该类，
@@ -167,3 +167,6 @@ best score：epoch19，mAP=0.452196（双光）
 输出文件：best_stg1_origin.pth、log_origin.txt
 
 
+### InfraNet make superior train's setting
+
+- rtdetrv2_obb_hgnetv2_s_atrumod_infranet_optimal.yml

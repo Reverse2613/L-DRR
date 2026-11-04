@@ -128,6 +128,27 @@ class QualGate(nn.Module):
             for _ in ir_channels_list
         ])
 
+        # 在 QualGate.__init__ 末尾调用初始化：
+        self._init_weights()
+
+    def _init_weights(self):
+        """保真零初始化与先验偏置注入 (防止开局特征破坏)."""
+        # 1. 让 mlp_qual 最后一层偏置初始化为 +2.0, 使初始 q = Sigmoid(2.0) ≈ 0.88 (默认开局信任可见光)
+        nn.init.constant_(self.mlp_qual[-2].weight, 0.0)
+        nn.init.constant_(self.mlp_qual[-2].bias, 2.0)
+
+        # 2. 将 content_gates 最后一层零初始化, 初始输出 g_k = Sigmoid(0) = 0.5 (温和均衡注入)
+        for gate in self.content_gates:
+            nn.init.constant_(gate[-2].weight, 0.0)
+            nn.init.constant_(gate[-2].bias, 0.0)
+
+        # 3. 将适配器的 BN 权重正常初始化
+        for adapter in self.adapters:
+            if hasattr(adapter.proj[1], 'weight') and adapter.proj[1].weight is not None:
+                nn.init.constant_(adapter.proj[1].weight, 1.0)
+                nn.init.constant_(adapter.proj[1].bias, 0.0)
+
+
     def forward(
         self, a_in: torch.Tensor, c_list: List[torch.Tensor]
     ) -> Tuple[torch.Tensor, torch.Tensor]:
