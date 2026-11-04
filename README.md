@@ -123,6 +123,8 @@ best score：epoch17，mAP=0.51557
 
 ## InfraNet：
 
+### InfraNet no make superior train's setting
+
 对于Infranet论文的复现
 - qual_gate.py  (质量感知融合模块，__init__.py同步导入该类，
 
@@ -143,6 +145,7 @@ criterion: RTv4OBBCriterion_Infranet这两行代码
 
 - dual_hgnetv2_infranet_improve.py  (优化收敛速度的infranet整个backbone骨架代码，让可见光模态也使用了预训练权重，把hgnet拆开使用的，__init__.py也要同步导入)
 
+- diagnose_infranet.py  (对infranet效果差的诊断分析)
 
 ```
 #训练命令
@@ -161,5 +164,6 @@ python train.py -c configs/rtdetrv2_obb/rtdetrv2_obb_hgnetv2_s_atrumod_infranet.
 ```
 best score：epoch19，mAP=0.452196（双光）
 
+输出文件：best_stg1_origin.pth、log_origin.txt
 
 
