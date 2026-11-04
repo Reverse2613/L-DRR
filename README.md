@@ -126,13 +126,13 @@ best score：epoch17，mAP=0.51557
 ### InfraNet no make superior train's setting（未进行好的训练设置）
 
 对于Infranet论文的复现
-- qual_gate.py  (质量感知融合模块，__init__.py同步导入该类，
+- qual_gate.py  (质量感知融合模块，__init__.py同步导入该类）
 
 code细节问题：
 
 其中的q分数，是对可见光特征图的所有通道共享一个q；但每个热红外特征图是各个通道使用不同的权重；
 但在质量感知融合时，无论是热红外还是可见光，都没有使用空间像素位置的权重，各通道空间像素位置共享同一个权重。
-)
+
 
 - dual_hgnetv2_infranet.py  (整个Infranet融合的backbone骨架，__init__.py也要同步导入)
 - rtv4_infranet.py  (__init__.py要同步导入，专门为infranet而写的整个框架组装代码,未完全懂❌)
@@ -145,7 +145,7 @@ criterion: RTv4OBBCriterion_Infranet这两行代码
 
 - dual_hgnetv2_infranet_improve.py  (优化收敛速度的infranet整个backbone骨架代码，让可见光模态也使用了预训练权重，把hgnet拆开使用的，__init__.py也要同步导入)
 
-- diagnose_infranet.py  (对infranet效果差的诊断分析)
+- diagnose_infranet.py  (对infranet效果差的诊断分析，未完全懂❌)
 
 ```
 #训练命令
@@ -169,4 +169,58 @@ best score：epoch19，mAP=0.452196（双光）
 
 ### InfraNet make superior train's setting
 
-- rtdetrv2_obb_hgnetv2_s_atrumod_infranet_optimal.yml
+关于这次实验，我就来探究一下如何设置初始的训练设置，来快速收敛网络。
+
+- rtdetrv2_obb_hgnetv2_s_atrumod_infranet_optimal.yml  (优化了训练设置）
+
+1.最开始我是这样优化的，学习率预热步数3000步约两轮左右；从零初始化了质量感知融合门；并且把IR与RGB的backbone的所有参数学习率都设置成了0.00001{小学习率}，新模块质量感知融合模块、编码器、解码器的学习率设置的为0.0001{大学习率}；也开启了权重衰减，但网络里面所有的归一化层与偏置参数我都没开启权重衰减；因为我采用了分层学习率参数组。但是最后的结果发现，效果很差，收敛速度实在太慢了，而且还比不过最初的未优化训练设置的指标，收敛很慢，在第十轮mAP=0.38，而最原始未优化训练设置的InfraNet的第十轮mAP=0.44，且前十轮没有一轮的指标能够追上原始的未优化设置的训练，为什么我只说前十轮，因为我看到前十轮都这么差，直接ctrl c停掉了，不浪费时间了。
+```
+# # 延长 Warmup 到 2 轮 (约 3000 iters), 保证新模块平滑热身。到底该不该延长Warmup呢？得结合具体情况具体分析吧。
+# warmup_iter: 3000   
+# flat_epoch: 18
+
+# optimizer:
+#   type: AdamW
+#   params:
+#     # 组 1: 预训练骨干的主卷积权重 (带 backbone，排除了 qual_gate，排除了所有 norm/bn/bias)
+#     - params: '^(?=.*backbone)(?!.*qual_gate)(?!.*(?:norm|bn|bias)).*$'
+#       lr: 0.0001
+#       weight_decay: 0.0001
+
+#     # 组 2: 预训练骨干的 Norm 层与 Bias (带 backbone，排除了 qual_gate，包含 norm/bn/bias) -> 绝不衰减！
+#     - params: '^(?=.*backbone)(?!.*qual_gate)(?=.*(?:norm|bn|bias)).*$'
+#       lr: 0.0001
+#       weight_decay: 0.0
+
+#     # 组 3: 新模块与检测头的 Norm 层与 Bias (包含 encoder/decoder/qual_gate 中的 norm/bn/bias) -> 绝不衰减！
+#     - params: '^(?=.*(?:encoder|decoder|qual_gate))(?=.*(?:norm|bn|bias)).*$'
+#       lr: 0.0001
+#       weight_decay: 0.0
+
+#   # 默认组 (未被上述正则捕获的其余权重，即 encoder/decoder/qual_gate 的主卷积和线性层权重)
+#   lr: 0.0001
+#   betas: [0.9, 0.999]
+#   weight_decay: 0.0001
+```
+
+2.学习率预热步数调整到了500；关掉人为对模块的初始化，还是继续让模块使用PyTorch默认的Kaiming均匀初始化；且把网络所有参数的学习率全部设置成了0.0001；开启了权重衰减，但网络里面所有的归一化层与偏置未开启权重衰减；
+```
+# 1. 恢复与 Concat 基线绝对一致的极速 Warmup (约 1/3 轮即可完成热身)
+warmup_iter: 500
+flat_epoch: 18
+
+# 2. 解除骨干限速，全网统一全速 1e-4 推进，仅免除 Norm 与 Bias 的权重衰减
+optimizer:
+  type: AdamW
+  params:
+    # 唯一关键组: 全网所有的 Norm 层 (权重/偏置) 与所有的 Conv/Linear Bias (绝对零衰减！)
+    - params: '.*(?:norm|bn|bias).*$'
+      weight_decay: 0.0
+
+  # 全网主体权重 (包含骨干卷积、Encoder、Decoder、QualGate) 统一使用 1e-4 全速推进
+  lr: 0.0001
+  betas: [0.9, 0.999]
+  weight_decay: 0.0001
+```
+
+
