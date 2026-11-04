@@ -169,14 +169,15 @@ best score：epoch19，mAP=0.452196（双光）
 
 ### InfraNet make superior train's setting
 
-关于这次实验，我就来探究一下如何设置初始的训练设置，来快速收敛网络。
+关于这次实验，我就来探究一下**如何设置初始的训练设置，来快速收敛网络**。
 
 - rtdetrv2_obb_hgnetv2_s_atrumod_infranet_optimal.yml  (优化了训练设置）
 
 1.最开始我是这样优化的，学习率预热步数3000步约两轮左右；从零初始化了质量感知融合门；并且把IR与RGB的backbone的所有参数学习率都设置成了0.00001{小学习率}，新模块质量感知融合模块、编码器、解码器的学习率设置的为0.0001{大学习率}；也开启了权重衰减，但网络里面所有的归一化层与偏置参数我都没开启权重衰减；因为我采用了分层学习率参数组。但是最后的结果发现，效果很差，收敛速度实在太慢了，而且还比不过最初的未优化训练设置的指标，收敛很慢，在第十轮mAP=0.38，而最原始未优化训练设置的InfraNet的第十轮mAP=0.44，且前十轮没有一轮的指标能够追上原始的未优化设置的训练，为什么我只说前十轮，因为我看到前十轮都这么差，直接ctrl c停掉了，不浪费时间了。
+哎呀，卧槽，我tm忘了开学习衰减了
 ```
 # # 延长 Warmup 到 2 轮 (约 3000 iters), 保证新模块平滑热身。到底该不该延长Warmup呢？得结合具体情况具体分析吧。
-# warmup_iter: 3000   
+# warmup_iter: 500   #最开始为3000
 # flat_epoch: 18
 
 # optimizer:
@@ -184,15 +185,15 @@ best score：epoch19，mAP=0.452196（双光）
 #   params:
 #     # 组 1: 预训练骨干的主卷积权重 (带 backbone，排除了 qual_gate，排除了所有 norm/bn/bias)
 #     - params: '^(?=.*backbone)(?!.*qual_gate)(?!.*(?:norm|bn|bias)).*$'
-#       lr: 0.0001
+#       lr: 0.00001
 #       weight_decay: 0.0001
 
 #     # 组 2: 预训练骨干的 Norm 层与 Bias (带 backbone，排除了 qual_gate，包含 norm/bn/bias) -> 绝不衰减！
 #     - params: '^(?=.*backbone)(?!.*qual_gate)(?=.*(?:norm|bn|bias)).*$'
-#       lr: 0.0001
+#       lr: 0.00001
 #       weight_decay: 0.0
 
-#     # 组 3: 新模块与检测头的 Norm 层与 Bias (包含 encoder/decoder/qual_gate 中的 norm/bn/bias) -> 绝不衰减！
+#     # 组 3: 新模块与检测头的 Norm 层与 Bias (包含 encoder/decoder/qual_gate 中的 norm/bn/bias) -> 绝不衰减！   要加入 embed吗？保护去噪嵌入！
 #     - params: '^(?=.*(?:encoder|decoder|qual_gate))(?=.*(?:norm|bn|bias)).*$'
 #       lr: 0.0001
 #       weight_decay: 0.0
@@ -203,7 +204,7 @@ best score：epoch19，mAP=0.452196（双光）
 #   weight_decay: 0.0001
 ```
 
-2.学习率预热步数调整到了500；关掉人为对模块的初始化，还是继续让模块使用PyTorch默认的Kaiming均匀初始化；且把网络所有参数的学习率全部设置成了0.0001；开启了权重衰减，但网络里面所有的归一化层与偏置未开启权重衰减；
+2.学习率预热步数调整到了500；关掉人为对模块的初始化，还是继续让模块使用PyTorch默认的Kaiming均匀初始化；且把网络所有参数的学习率全部设置成了0.0001；开启了权重衰减，但网络里面所有的归一化层与偏置未开启权重衰减；唉😔，tm服了，忘了开学习率衰减了，而且embed的权重衰减也没显示的关，不过没关系，刚好可以实验看看到底应该在哪轮开始进行学习率衰减。
 ```
 # 1. 恢复与 Concat 基线绝对一致的极速 Warmup (约 1/3 轮即可完成热身)
 warmup_iter: 500

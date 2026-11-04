@@ -29,7 +29,7 @@ class ATRUMODPairDataset(DetDataset):
 
     __inject__ = ["transforms"]
 
-    # 经 data_pre/inspect_atrumod.py 全量验证确认的 11 类严格字符串
+    # 经 data_pre/inspect_atrumod.py 全量验证确认的 11 类严格字符串？tuple，list，arr，dict，optional区别
     CLASSES: Tuple[str, ...] = (
         "car",
         "suv",
@@ -79,7 +79,7 @@ class ATRUMODPairDataset(DetDataset):
 
         candidate_names = ["images", "images_rgb", "images_color", "rgb"]
         if base_name.endswith("_ir"):
-            candidate_names.insert(0, base_name[:-3])
+            candidate_names.insert(0, base_name[:-3])#？
 
         for candidate in candidate_names:
             rgb_path = os.path.join(parent_dir, candidate)
@@ -100,7 +100,7 @@ class ATRUMODPairDataset(DetDataset):
             raise FileNotFoundError(f"红外目录不存在: {self.img_folder_ir}")
 
         candidates = [
-            os.path.splitext(f)[0]
+            os.path.splitext(f)[0]#？
             for f in os.listdir(self.img_folder_ir)
             if f.lower().endswith((".jpg", ".png", ".bmp", ".jpeg"))
         ]

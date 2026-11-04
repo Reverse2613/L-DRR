@@ -64,7 +64,7 @@ RTDETRTransformerv2OBB:
   num_denoising: 100
   label_noise_ratio: 0.5
   box_noise_scale: 1.0
-  learn_query_content: False
+  learn_query_content: False    #RT-DETR
   eval_idx: -1
   num_points: [4, 4, 4]
   cross_attn_method: default
@@ -89,37 +89,12 @@ epoches: 36
 checkpoint_freq: 20                     # 每 20 轮存档一次
 
 lrsheduler: flatcosine
-# # 延长 Warmup 到 2 轮 (约 3000 iters), 保证新模块平滑热身。到底该不该延长Warmup呢？得结合具体情况具体分析吧。
-# warmup_iter: 500   #最开始为3000
-# flat_epoch: 18
-
-# optimizer:
-#   type: AdamW
-#   params:
-#     # 组 1: 预训练骨干的主卷积权重 (带 backbone，排除了 qual_gate，排除了所有 norm/bn/bias)
-#     - params: '^(?=.*backbone)(?!.*qual_gate)(?!.*(?:norm|bn|bias)).*$'
-#       lr: 0.0001
-#       weight_decay: 0.0001
-
-#     # 组 2: 预训练骨干的 Norm 层与 Bias (带 backbone，排除了 qual_gate，包含 norm/bn/bias) -> 绝不衰减！
-#     - params: '^(?=.*backbone)(?!.*qual_gate)(?=.*(?:norm|bn|bias)).*$'
-#       lr: 0.0001
-#       weight_decay: 0.0
-
-#     # 组 3: 新模块与检测头的 Norm 层与 Bias (包含 encoder/decoder/qual_gate 中的 norm/bn/bias) -> 绝不衰减！
-#     - params: '^(?=.*(?:encoder|decoder|qual_gate))(?=.*(?:norm|bn|bias)).*$'
-#       lr: 0.0001
-#       weight_decay: 0.0
-
-#   # 默认组 (未被上述正则捕获的其余权重，即 encoder/decoder/qual_gate 的主卷积和线性层权重)
-#   lr: 0.0001
-#   betas: [0.9, 0.999]
-#   weight_decay: 0.0001
-
 
 # 1. 恢复与 Concat 基线绝对一致的极速 Warmup (约 1/3 轮即可完成热身)
 warmup_iter: 500
-flat_epoch: 18
+flat_epoch: 20                                                              #正在试验到底应该在哪一轮开始学习率衰减
+no_aug_epoch: 0
+lr_gamma: 0.1
 
 # 2. 解除骨干限速，全网统一全速 1e-4 推进，仅免除 Norm 与 Bias 的权重衰减
 optimizer:
