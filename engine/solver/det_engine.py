@@ -96,7 +96,7 @@ def train_one_epoch(self_lr_scheduler, lr_scheduler, model: torch.nn.Module, cri
             if torch.isnan(outputs['pred_boxes']).any() or torch.isinf(outputs['pred_boxes']).any():
                 print(f"\n[NaN Detected] Epoch {epoch}, Step {i}")
 
-            if dist_utils.is_main_process() and i <= 8:
+            if dist_utils.is_main_process() and epoch < 3 and i == 0:
                  output_dir = kwargs.get('output_dir', '.')
                  if output_dir:
                      visualize_obb_training(samples, targets, outputs, epoch, i, output_dir)

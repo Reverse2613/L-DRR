@@ -1,5 +1,5 @@
 """
-tests/test_qual_gate.py
+tools/test_qual_gate.py
 
 QualGate 模块的物理机理、数值稳定性与梯度回传防御性单元测试.
 """

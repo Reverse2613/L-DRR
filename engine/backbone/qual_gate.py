@@ -135,9 +135,9 @@ class QualGate(nn.Module):
 
         # 3. 将适配器的 BN 权重正常初始化
         for adapter in self.adapters:
-            if hasattr(adapter.proj[1], 'weight') and adapter.proj[1].weight is not None:
-                nn.init.constant_(adapter.proj[1].weight, 1.0)
-                nn.init.constant_(adapter.proj[1].bias, 0.0)
+            if hasattr(adapter.norm, 'weight') and adapter.norm.weight is not None:
+                nn.init.constant_(adapter.norm.weight, 1.0)
+                nn.init.constant_(adapter.norm.bias, 0.0)
 
 
     def forward(

@@ -1,0 +1,129 @@
+# ==============================================================================
+# RT-DETRv2-OBB-Small 消融实验组: 单模态热红外基准 (Unimodal IR Baseline)
+# ==============================================================================
+
+__include__: [
+  '../dataset/atrumod_rgbt.yml',
+  '../runtime.yml',
+  '../base/dataloader.yml',
+  '../base/rtv2_optimizer.yml',
+  '../base/rtv2_r50vd.yml',
+]
+
+output_dir: ./outputs/rtdetrv2_obb_hgnetv2_s_atrumod_single_ir_optimal
+eval_spatial_size: [512, 640]
+
+RTv4:
+  backbone: SingleHGNetv2_IR             # 替换为主干: 仅单路红外
+  encoder: HybridEncoder
+  decoder: RTDETRTransformerv2OBB
+
+SingleHGNetv2_IR:
+  name: 'B0'
+  return_idx: [1, 2, 3]
+  freeze_at: -1
+  freeze_norm: False
+  use_lab: True
+  pretrained: True
+  local_model_dir: ./pretrain/hgnetv2/
+
+criterion: RTv4OBBCriterion
+
+postprocessor: PostProcessorOBB
+
+PostProcessorOBB:
+  num_top_queries: 300
+  input_shape: [512, 640]
+
+HybridEncoder:
+  in_channels: [256, 512, 1024]
+  feat_strides: [8, 16, 32]
+  hidden_dim: 224
+  version: rt_detrv2
+  expansion: 0.5
+  depth_mult: 0.34
+  eval_spatial_size: [512, 640]
+
+RTDETRTransformerv2OBB:
+  feat_channels: [224, 224, 224]
+  feat_strides: [8, 16, 32]
+  hidden_dim: 224
+  num_levels: 3
+  num_layers: 3
+  num_queries: 300
+  num_denoising: 100
+  label_noise_ratio: 0.5
+  box_noise_scale: 1.0
+  learn_query_content: False
+  eval_idx: -1
+  num_points: [4, 4, 4]
+  cross_attn_method: default
+  query_select_method: default
+  query_pos_method: default
+  anchor_aspect_ratio: 1.0
+  eval_spatial_size: [512, 640]
+
+RTv4OBBCriterion:
+  weight_dict: {loss_focal: 1, loss_l1: 5, loss_kld: 5}
+  losses: ['focal', 'l1', 'kld']
+  alpha: 0.75
+  gamma: 2.0
+  use_uni_set: True
+  matcher:
+    type: HungarianMatcherOBB
+    weight_dict: {cost_class: 2, cost_bbox: 0, cost_hausdorff: 5, cost_giou: 5}
+    alpha: 0.25
+    gamma: 2.0
+
+epoches: 36
+checkpoint_freq: 20
+
+lrsheduler: flatcosine
+warmup_iter: 500
+flat_epoch: 21                      
+no_aug_epoch: 0
+lr_gamma: 0.1                        #必须显示设置lr_gamma为0.1、0.5等，才能让余弦退火生效
+
+# 2. 解除骨干限速，全网统一全速 1e-4 推进，仅免除 Norm 与 Bias 的权重衰减
+optimizer:
+  type: AdamW
+  params:
+    # 唯一关键组: 全网所有的 Norm 层 (权重/偏置) 与所有的 Conv/Linear Bias (绝对零衰减！)
+    # 所有的 embedding 权重 (带 embed 且以 .weight 结尾).
+    - params: '.*(?:norm|bn|bias|embed\..*weight).*$'
+      weight_decay: 0.0
+
+  # 全网主体权重 (包含骨干卷积、Encoder、Decoder、QualGate) 统一使用 1e-4 全速推进
+  lr: 0.0001
+  betas: [0.9, 0.999]
+  weight_decay: 0.0001
+
+train_dataloader:
+  total_batch_size: 8
+  dataset:
+    transforms:
+      type: Compose
+      ops:
+        - {type: PairedResizeOBB, size: [512, 640]}
+        - {type: PairedSanitizeBoundingBoxesOBB, min_size: 1.0}
+        - {type: PairedConvertPILToTensor, dtype: 'float32', scale: True}
+        - {type: PairedConvertOBB, normalize: True}
+      policy:
+        name: default
+  collate_fn:
+    base_size: 640
+    base_size_repeat: ~
+    mixup_prob: 0.0                     
+    stop_epoch: 36
+    ema_restart_decay: 0.9999
+
+val_dataloader:
+  total_batch_size: 16
+  dataset:
+    transforms:
+      type: Compose
+      ops:
+        - {type: PairedResizeOBB, size: [512, 640]}
+        - {type: PairedSanitizeBoundingBoxesOBB, min_size: 1.0}
+        - {type: PairedConvertPILToTensor, dtype: 'float32', scale: True}
+        - {type: PairedConvertOBB, normalize: True}

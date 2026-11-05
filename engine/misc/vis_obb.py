@@ -35,7 +35,7 @@ def get_rotated_rect(cx, cy, w, h, angle_rad):
 
     return np.array(corners, dtype=np.int32)
 
-def visualize_obb_training(samples, targets, outputs, epoch, batch_idx, output_dir, threshold=0):
+def visualize_obb_training(samples, targets, outputs, epoch, batch_idx, output_dir, threshold=0.2):
     """
     Visualize OBB training samples.
 
@@ -53,8 +53,8 @@ def visualize_obb_training(samples, targets, outputs, epoch, batch_idx, output_d
 
     B, C, H, W = samples.shape
 
-    # Limit to first 4 images in batch to save time/space
-    limit = min(B, 4)
+    # Limit to first 2 images in batch to save time/space
+    limit = min(B, 2)
 
     def _to_vis_list(img_tensor):
         # RGBT concat input is [6,H,W] (IR 0:3 + RGB 3:6); split for visualization.

@@ -170,6 +170,7 @@ best score：epoch19，mAP=0.452196（双光）
 ### InfraNet make superior train's setting
 
 关于这次实验，我就来探究一下**如何设置初始的训练设置，来快速收敛网络**。
+实质就是调参，找到快速收敛且能够跳出某些极值的初始训练设置，在以下所有步骤中，网络架构完全没改变，只改了初始训练设置。
 
 - rtdetrv2_obb_hgnetv2_s_atrumod_infranet_optimal.yml  (优化了训练设置）
 
@@ -228,5 +229,11 @@ best score：epoch25，mAP=0.47612359
 
 输出文件：best_stg1_optimal2.pth、log_optimal2.txt
 
-3.和2的设置基本一样，只是加了学习率衰减flat_epoch、lr_gamma；并把embed加入了不使用权重衰减组；且赋了初值给质量感知融合模块
+3.和2的设置基本一样，只是加了学习率衰减flat_epoch=22、lr_gamma；并把embed加入了不使用权重衰减组；且赋了初值给质量感知融合模块
 
+best score：epoch17，mAP=0.484696
+
+**总结**
+经过以上的超参数与训练设置，得到目前最优解是：
+
+所有的“norm|bn|bias|embed”不开启权重衰减，学习率全部设置为0.0001，学习率预热500iter，开启学习率余弦退火.

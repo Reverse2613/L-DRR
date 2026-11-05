@@ -1,5 +1,5 @@
 """
-tests/test_dual_hgnetv2_infranet.py
+tools/test_dual_hgnetv2_infranet.py
 
 DualHGNetv2_InfraNet 主干网络的双流拓扑、两种推理模式 (IR / RGB-IR) 与梯度回传单测.
 """

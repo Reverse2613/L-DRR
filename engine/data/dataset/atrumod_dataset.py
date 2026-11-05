@@ -196,7 +196,7 @@ class ATRUMODPairDataset(DetDataset):
                 w_box = float(robndbox.findtext("w", "0"))
                 h_box = float(robndbox.findtext("h", "0"))
                 angle_deg = float(robndbox.findtext("angle", "0"))
-
+                #？
                 if w_box <= 1.0 or h_box <= 1.0:
                     continue
 

@@ -1,5 +1,5 @@
 """
-tests/test_condition_parser.py
+tools/test_condition_parser.py
 验证 XML 标注文件解析是否符合论文映射规则.
 """
 import sys

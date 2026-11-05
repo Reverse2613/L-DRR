@@ -1,5 +1,5 @@
 """
-tests/test_infranet_e2e.py
+tools/test_infranet_e2e.py
 
 端到端闭环单测: 检验 RTv4 + DualHGNetv2_InfraNet + 共享 Head + 辅助损失反向传播.
 """
