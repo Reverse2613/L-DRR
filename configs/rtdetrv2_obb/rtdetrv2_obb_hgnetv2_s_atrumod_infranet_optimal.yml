@@ -64,7 +64,7 @@ RTDETRTransformerv2OBB:
   num_denoising: 100
   label_noise_ratio: 0.5
   box_noise_scale: 1.0
-  learn_query_content: False    #RT-DETR
+  learn_query_content: False    #使用真正的RT-DETR的标志
   eval_idx: -1
   num_points: [4, 4, 4]
   cross_attn_method: default
@@ -92,16 +92,17 @@ lrsheduler: flatcosine
 
 # 1. 恢复与 Concat 基线绝对一致的极速 Warmup (约 1/3 轮即可完成热身)
 warmup_iter: 500
-flat_epoch: 20                                                              #正在试验到底应该在哪一轮开始学习率衰减
+flat_epoch: 22                       #正在试验到底应该在哪一轮开始学习率衰减，flat_epoch表示平坦期持续多少个epoch
 no_aug_epoch: 0
-lr_gamma: 0.1
+lr_gamma: 0.1                        #必须显示设置lr_gamma为0.1、0.5等，才能让余弦退火生效
 
 # 2. 解除骨干限速，全网统一全速 1e-4 推进，仅免除 Norm 与 Bias 的权重衰减
 optimizer:
   type: AdamW
   params:
     # 唯一关键组: 全网所有的 Norm 层 (权重/偏置) 与所有的 Conv/Linear Bias (绝对零衰减！)
-    - params: '.*(?:norm|bn|bias).*$'
+    # 所有的 embedding 权重 (带 embed 且以 .weight 结尾).
+    - params: '.*(?:norm|bn|bias|embed\..*weight).*$'
       weight_decay: 0.0
 
   # 全网主体权重 (包含骨干卷积、Encoder、Decoder、QualGate) 统一使用 1e-4 全速推进

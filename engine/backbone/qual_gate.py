@@ -39,24 +39,15 @@ class ChannelAdapter(nn.Module):
             out_channels (int): 目标对齐通道数 (与 a_in 通道一致).
         """
         super().__init__()
-        self.proj = nn.Sequential(
-            nn.Conv2d(
-                in_channels=in_channels,
-                out_channels=out_channels,
-                kernel_size=1,
-                stride=1,
-                padding=0,
-                bias=False,
-            ),
-            nn.BatchNorm2d(num_features=out_channels),
-            nn.SiLU(inplace=True),
-        )
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
+        self.norm = nn.BatchNorm2d(out_channels)  # 显式命名为 self.norm，参数名绝对带 norm！
+        self.act = nn.SiLU(inplace=True)
 
     def forward(
         self, x: torch.Tensor, target_size: Tuple[int, int]
     ) -> torch.Tensor:
         # 1. 通道投影降维/升维
-        x = self.proj(x)
+        x = self.act(self.norm(self.conv(x)))
 
         # 2. 空间几何分辨率安全对齐
         if x.shape[-2:] != target_size:
@@ -129,7 +120,7 @@ class QualGate(nn.Module):
         ])
 
         # 在 QualGate.__init__ 末尾调用初始化：
-        # self._init_weights()
+        self._init_weights()
 
     def _init_weights(self):
         """保真零初始化与先验偏置注入 (防止开局特征破坏)."""

@@ -203,6 +203,7 @@ best score：epoch19，mAP=0.452196（双光）
 #   betas: [0.9, 0.999]
 #   weight_decay: 0.0001
 ```
+输出文件：log_optimal.txt
 
 2.学习率预热步数调整到了500；关掉人为对模块的初始化，还是继续让模块使用PyTorch默认的Kaiming均匀初始化；且把网络所有参数的学习率全部设置成了0.0001；开启了权重衰减，但网络里面所有的归一化层与偏置未开启权重衰减；唉😔，tm服了，忘了开学习率衰减了，而且embed的权重衰减也没显示的关，不过没关系，刚好可以实验看看到底应该在哪轮开始进行学习率衰减。
 ```
@@ -223,5 +224,9 @@ optimizer:
   betas: [0.9, 0.999]
   weight_decay: 0.0001
 ```
+best score：epoch25，mAP=0.47612359
 
+输出文件：best_stg1_optimal2.pth、log_optimal2.txt
+
+3.和2的设置基本一样，只是加了学习率衰减flat_epoch、lr_gamma；并把embed加入了不使用权重衰减组；且赋了初值给质量感知融合模块
 

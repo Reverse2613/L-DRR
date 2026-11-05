@@ -1,0 +1,207 @@
+# ==============================================================================
+# RT-DETRv2-OBB-Small 面向 DroneVehicle 单红外 (TIR) 基线配置
+# 母本: configs/rtdetrv2_obb/rtdetrv2_obb_hgnetv2_s_dota_1_ss.yml
+# 说明: 本文件所有数值未改动逻辑，仅追加注释。合并规则见 engine/core/yaml_utils.py:load_config/merge_dict
+#       __include__ 按列表顺序合并，后者覆盖前者；dict递归合并，list整体替换。
+#       lr_gamma 本文件未写，最终继承自 ../base/rtv2_r50vd.yml:19 的 lr_gamma: 1。
+# ==============================================================================
+
+# __include__: 基础配置叠加顺序。依据 engine/core/yaml_utils.py:24-48
+#   dataset -> runtime -> base/dataloader -> base/rtv2_optimizer -> base/rtv2_r50vd -> 本文件
+__include__: [
+  '../dataset/dronevehicle_ir.yml',     # 【修改点 1】: 将 DOTA 数据集替换为我们的 DroneVehicle 红外配置; 定义 DroneVehicleDataset/num_classes=5，见 engine/data/dataset/dota_dataset.py:142
+  '../runtime.yml',                     # 【保持原样】: 运行时基础参数 (print_freq/sync_bn/use_amp/use_ema 等)
+  '../base/dataloader.yml',             # 【保持原样】: 引用 base 下的基础加载器 (会被本文件 train/val_dataloader 覆盖)
+  '../base/rtv2_optimizer.yml',         # 【保持原样】: 引用 base 下的优化器 (其 params:list 会被本文件 optimizer.params 整体替换)
+  '../base/rtv2_r50vd.yml',             # 【保持原样】: 引用 base 下的基础模型定义 (提供 lrsheduler/flatcosine 模板与 lr_gamma:1)
+]
+
+# 【修改点 2】: 训练输出日志与权重保存路径，覆盖 runtime.yml:2 的 './logs'
+# 依据 engine/solver/_solver.py:79-81 输出目录创建与 writer/ckpt 落点
+output_dir: ./outputs/rtdetrv2_obb_hgnetv2_s_dronevehicle_ir_baseline
+
+# eval_spatial_size: 评估/解码用空间尺寸 [h,w]，母本 1024 改为 640 以适配显存
+# 依据 engine/rtv4/hybrid_encoder.py:319 与 engine/rtv4/rtdetrv2_obb_decoder.py:305 的 __share__ 注入，
+# 用于生成 anchors/valid_mask，见 rtdetrv2_obb_decoder.py:408-411；须与 PostProcessorOBB.input_shape 一致
+eval_spatial_size: [640, 640]
+
+# RTv4: 整模型组装，见 engine/rtv4/rtv4.py:13-25 (__inject__=[backbone,encoder,decoder])???这里必须时RTv4这个字符串吗？
+#   backbone 选 HGNetv2，decoder 选旋转框解码器；encoder 未写则用全局默认 HybridEncoder
+RTv4:
+  backbone: HGNetv2
+  decoder: RTDETRTransformerv2OBB
+
+# HGNetv2: 主干网络，见 engine/backbone/hgnetv2.py:341-436
+#   name B0: 最小档，结构定义见 hgnetv2.py:356-364 (stem [3,16,16]+4 stages，S5=1024ch)
+#   return_idx [1,2,3]: 取 stage2/3/4 输出 (stride 8/16/32)，通道 [256,512,1024]，正好对齐 HybridEncoder.in_channels
+#   freeze_at -1: hgnetv2.py:470-474 不冻结任何 stage (0 才冻 stem)；freeze_norm False: hgnetv2.py:476-477 不冻结 BN，均值方差持续更新
+#   use_lab True: 用 LearnableAffineBlock；pretrained True + local_model_dir: 优先加载本地 PPHGNetV2_B0_stage1.pth，见 hgnetv2.py:479-498
+HGNetv2:
+  name: 'B0'
+  return_idx: [1, 2, 3]
+  freeze_at: -1
+  freeze_norm: False
+  use_lab: True
+  pretrained: True
+  local_model_dir: ./pretrain/hgnetv2/
+
+# criterion: 训练损失模块名，实际类 RTv4OBBCriterion 见 engine/rtv4/rtv4_obb_criterion.py:29
+criterion: RTv4OBBCriterion
+
+# postprocessor: 推理后处理模块名，实际类 PostProcessorOBB 见 engine/rtv4/postprocessor.py:93
+postprocessor: PostProcessorOBB
+
+# PostProcessorOBB: 见 postprocessor.py:96-141
+#   num_top_queries 300: 对 pred_logits.sigmoid 后 flatten 取 top300；须与 decoder.num_queries 一致
+#   input_shape [640,640]: 若非空则按 640 缩放归一化框到原图 (boxes[...,:4]*target_wh/scale，角度* pi)，见 postprocessor.py:105-116
+PostProcessorOBB:
+  num_top_queries: 300
+  input_shape: [640, 640]
+
+# HybridEncoder: Neck (AIFI+FPN)，见 engine/rtv4/hybrid_encoder.py:318-396
+#   in_channels [256,512,1024]: 必须等于 HGNetv2 return_idx 三层通道；hidden_dim 224: 先 1x1 投影到 224，再做 encoder+FPN，S 档用 224 (默认 256) 以减参
+#   version rt_detrv2: hybrid_encoder.py:389-396 走 CSPLayer+VGGBlock 分支 (dfine 则走 RepNCSPELAN4)
+#   expansion 0.5 / depth_mult 0.34: FPN 块通道扩展比与深度乘子，越小越轻
+HybridEncoder:
+  in_channels: [256, 512, 1024]
+  version: rt_detrv2
+  expansion: 0.5
+  depth_mult: 0.34
+  hidden_dim: 224
+
+# RTDETRTransformerv2OBB: 旋转框 Transformer 解码器，见 engine/rtv4/rtdetrv2_obb_decoder.py:304-413
+#   feat_channels/feat_strides/hidden_dim/num_levels: 必须与 HybridEncoder 输出对齐 (3 层，stride 8/16/32)，见 decoder:336-347
+#   num_layers 3: 解码器层数 (默认 6，S 档减半)；num_queries 300: 可学习查询数，与后处理 topk 对齐
+#   num_denoising 100 + label_noise_ratio 0.5 + box_noise_scale 1.0: DN 去噪训练查询数与噪声强度，见 decoder:368-374；0 则关闭
+#   learn_query_content False: 不用 nn.Embedding 内容查询 (decoder:377-379)，只用位置查询???这个不用内容查询是什么意思？
+#   eval_idx -1: 评估用最后一层；num_points [4,4,4]: 每层可变形注意力采样点数
+#   cross_attn_method/query_select_method/query_pos_method/anchor_aspect_ratio: 注意力与 query 生成策略，default 为默认分支，见 decoder:354-358
+RTDETRTransformerv2OBB:
+  feat_channels: [224, 224, 224]
+  feat_strides: [8, 16, 32]
+  hidden_dim: 224
+  num_levels: 3
+  num_layers: 3
+  num_queries: 300
+  num_denoising: 100
+  label_noise_ratio: 0.5
+  box_noise_scale: 1.0
+  learn_query_content: False
+  eval_idx: -1
+  num_points: [4, 4, 4]
+  cross_attn_method: default
+  query_select_method: default
+  query_pos_method: default
+  anchor_aspect_ratio: 1.0
+
+# RTv4OBBCriterion: 损失与匹配，见 engine/rtv4/rtv4_obb_criterion.py:29-117 与 engine/rtv4/obb_matcher.py:24-108
+#   losses [focal,l1,kld] + weight_dict {1,5,5}: 分别对应 criterion.py:65/79/99 的 loss_labels_focal/loss_l1/loss_kld，加权求和
+#   alpha 0.75/gamma 2.0: sigmoid_focal_loss 的类别权重与难易权重，见 criterion.py:74
+#   use_uni_set True: 统一匹配集合开关；matcher HungarianMatcherOBB: 一对一匈牙利匹配，见 obb_matcher.py:58-119
+#   matcher.weight_dict {cost_class 2,cost_bbox 0,cost_hausdorff 5,cost_giou 5}: 匹配代价权重，cost_bbox=0 表示匹配时不用 L1，仅用分类+KLD旋转散度+Hausdorff，见 obb_matcher.py:98-108
+#   matcher.alpha 0.25/gamma 2.0: 匹配侧 focal 代价参数，见 obb_matcher.py:90-94
+RTv4OBBCriterion:
+  weight_dict: {loss_focal: 1, loss_l1: 5, loss_kld: 5}
+  losses: ['focal', 'l1', 'kld']
+  alpha: 0.75
+  gamma: 2.0
+  use_uni_set: True
+  matcher:
+    type: HungarianMatcherOBB
+    weight_dict: {cost_class: 2, cost_bbox: 0, cost_hausdorff: 5, cost_giou: 5}
+    alpha: 0.25
+    gamma: 2.0
+
+# epoches 142: 总训练轮数；checkpoint_freq 40: 每 40 epoch 存一次 checkpoint{epoch}.pth，见 engine/solver/det_solver.py:231-234 (母本为 2)
+epoches: 142
+checkpoint_freq: 40
+
+# 自研 flat-cosine 调度，见 engine/solver/det_solver.py:98-104 + engine/optim/lr_scheduler.py:10-72
+#   lrsheduler flatcosine: 非 None 即启用自调度，按 iter 更新 (det_engine.py:144-145)，不再走 MultiStepLR/按 epoch 更新
+#   warmup_iter -1: 关闭内部预热 (lr_scheduler.py:26 要求 current_iter<=warmup_iter，-1 永不成立)；正常值如 rtv2_r50vd.yml:20 为 2000
+#   flat_epoch 70: 前 70 epoch 恒定 init_lr (lr_scheduler.py:28-29，flat_iter=iter_per_epoch*70)
+#   no_aug_epoch 12: 后 12 epoch 恒定 min_lr (lr_scheduler.py:30-31，no_aug_iter=iter_per_epoch*12)
+#   注意: lr_gamma 未在本文件出现，继承 base/rtv2_r50vd.yml:19 的 lr_gamma:1，故 min_lr=init_lr，中间 cosine 段 (lr_scheduler.py:33-35) 也恒等于 init_lr，全程恒定学习率
+lrsheduler: flatcosine
+warmup_iter: -1
+flat_epoch: 70
+no_aug_epoch: 12
+
+# optimizer: AdamW 分组学习率，实际分组见 engine/core/yaml_config.py:get_optim_params:162-199 (正则命中进显式组，未命中进兜底组)
+#   组1 params '^(?=.*backbone)(?=.*norm|bn).*$' lr 1e-5 wd 0.: 命中含 backbone 且含 norm/bn 的参数 (主干归一化层)，10 倍小 lr 微调预训练，wd=0 不做 L2
+#   组2 params '^(?=.*(?:encoder|decoder))(?=.*(?:norm|bn)).*$' wd 0.: 命中含 encoder/decoder 且含 norm/bn 的参数，只覆写 wd=0，lr 缺失则回填全局 0.0001
+#   全局 lr 1e-4 / betas / wd 1e-4: 兜底组 (其余参数) 与组2缺失 lr 的默认值；torch 规则缺失项用全局默认值填充
+#   本文件 params:list 会整体替换 base/rtv2_optimizer.yml:17-23 的 list；FlatCosine 对每组按各自 initial_lr 等比缩放，见 lr_scheduler.py:53-54,63-72
+optimizer:
+  type: AdamW
+  params:
+    -
+      params: '^(?=.*backbone)(?=.*norm|bn).*$'
+      lr: 0.00001
+      weight_decay: 0.
+    -
+      params: '^(?=.*(?:encoder|decoder))(?=.*(?:norm|bn)).*$'
+      weight_decay: 0.
+  lr: 0.0001
+  betas: [0.9, 0.999]
+  weight_decay: 0.0001
+
+# lr_warmup_scheduler ~ (None): 关闭第二套通用 LinearWarmup，见 engine/core/yaml_config.py:109-112 (为 None 则不 create) 与 engine/solver/det_engine.py:147-148 (为 None 则跳过)
+# 对照 base/rtv2_optimizer.yml:35-37 默认 LinearWarmup/warmup_duration:0，这里显式覆盖关闭；与 warmup_iter=-1 共同表示“无预热”
+lr_warmup_scheduler: ~
+
+train_dataloader:
+  # 【修改点 3】: 针对本地单卡 RTX 3080 显存适配，将 16 改为 4，防止显存 OOM
+  # total_batch_size: 经 engine/core/yaml_config.py:201-217 除以 world_size 得到 per-rank batch_size
+  total_batch_size: 4
+  dataset:
+    transforms:
+      ops:
+        # MosaicOBB: 四图拼接旋转框增强，output_size 640；rotation_range 0 不旋转；translation/scaling 随机位移缩放；probability 1.0 由下方 policy/mosaic_prob 二次门控
+        - {type: MosaicOBB, output_size: 640, rotation_range: 0, translation_range: [0.1, 0.1], scaling_range: [0.5, 1.5],
+           probability: 1.0, fill_value: 0, use_cache: False, max_cached_images: 50, random_pop: True}
+        # RandomPhotometricDistort p 0.5: 亮度/对比度等光度扰动；SanitizeBoundingBoxesOBB min_size 1: 剔除增强后过小/越界框
+        - {type: RandomPhotometricDistort, p: 0.5}
+        - {type: SanitizeBoundingBoxesOBB, min_size: 1}
+        # RandomZoomOutOBB: 缩小贴画布；RandomIoUCropOBB p 0.8: IoU 裁剪；注意与 Mosaic 互斥，见 container.py:97-98
+        - {type: RandomZoomOutOBB, fill: 0}
+        - {type: RandomIoUCropOBB, p: 0.8}
+        # RandomHorizontalFlipOBB: 水平翻转 (同步翻转角度)；ResizeOBB [640,640]: 拉伸到训练尺寸；再清洗一次小框
+        - {type: RandomHorizontalFlipOBB}
+        - {type: ResizeOBB, size: [640, 640], }
+        - {type: SanitizeBoundingBoxesOBB, min_size: 1}
+        # ConvertPILImage: 转 float32 并 /255；ConvertOBB normalize True: 转归一化 cxcywh+angle，供 decoder/criterion 使用
+        - {type: ConvertPILImage, dtype: 'float32', scale: True}
+        - {type: ConvertOBB, normalize: True}
+      # policy: 增强四阶段开关，见 engine/data/transforms/container.py:74-100
+      #   epoch [4,82,120]: 0-4 无强增强；4-82 按 mosaic_prob 决定 Mosaic；82-120 关 Mosaic；>=120 关 ops 列表四种
+      #   ops: 受开关控制的增强名；mosaic_prob 0.5: 4-82 阶段 Mosaic 生效概率，见 container.py:82-98
+      policy:
+        epoch: [4, 82, 120]
+        ops: ['MosaicOBB', 'RandomPhotometricDistort', 'RandomZoomOutOBB', 'RandomIoUCropOBB']
+      mosaic_prob: 0.5
+
+  collate_fn:
+    # BatchImageCollateFunction 见 engine/data/dataloader.py:95-142
+    #   base_size 640 + base_size_repeat ~: ~ 表示关闭多尺度 (非 ~ 则 generate_scales 生成多尺度，见 dataloader.py:108-109,188)
+    #   mixup_prob 0.5 + mixup_epochs [4,82]: 仅 4<=epoch<82 以 0.5 概率做 Mixup，见 dataloader.py:141-164
+    #   stop_epoch 120: 120 起停多尺度/ Mixup，并触发 det_solver.py:153-156 重载 best_stg1 且 EMA decay 重置为 ema_restart_decay
+    #   ema_restart_decay 0.9999: 第二阶段 EMA 动量
+    base_size: 640
+    base_size_repeat: ~
+    mixup_prob: 0.5
+    mixup_epochs: [4, 82]
+    stop_epoch: 120
+    ema_restart_decay: 0.9999
+
+val_dataloader:
+  # 【修改点 4】: 验证集 batch_size 同步调整为 4
+  total_batch_size: 4
+  dataset:
+    transforms:
+      ops:
+        # 验证仅做确定性预处理：等比 Resize 到 640 并 pad (keep_ratio+pad_to_size)，不做任何随机增强；min_size 1.0 清洗；归一化后送 PostProcessorOBB 评估
+        - {type: ResizeOBB, size: [640, 640], keep_ratio: True, pad_to_size: True, fill: 0}
+        - {type: SanitizeBoundingBoxesOBB, min_size: 1.0}
+        - {type: ConvertPILImage, dtype: 'float32', scale: True}
+        - {type: ConvertOBB, normalize: True}
