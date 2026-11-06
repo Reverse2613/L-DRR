@@ -228,5 +228,5 @@ def run_infranet_diagnosis(cfg_path: str, checkpoint_path: str):
 
 if __name__ == "__main__":
     cfg_file = "configs/rtdetrv2_obb/rtdetrv2_obb_hgnetv2_s_atrumod_infranet.yml"
-    ckpt_file = "outputs/rtdetrv2_obb_hgnetv2_s_atrumod_infranet/best_stg1_origin.pth"
+    ckpt_file = "outputs/rtdetrv2_obb_hgnetv2_s_atrumod_infranet/best_stg1.pth"
     run_infranet_diagnosis(cfg_file, ckpt_file)

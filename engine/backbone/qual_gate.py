@@ -43,11 +43,25 @@ class ChannelAdapter(nn.Module):
         self.norm = nn.BatchNorm2d(out_channels)  # 显式命名为 self.norm，参数名绝对带 norm！
         self.act = nn.SiLU(inplace=True)
 
+        # self.proj = nn.Sequential(
+        #     nn.Conv2d(
+        #         in_channels=in_channels,
+        #         out_channels=out_channels,
+        #         kernel_size=1,
+        #         stride=1,
+        #         padding=0,
+        #         bias=False,
+        #     ),
+        #     nn.BatchNorm2d(num_features=out_channels),
+        #     nn.SiLU(inplace=True),
+        # )
+
     def forward(
         self, x: torch.Tensor, target_size: Tuple[int, int]
     ) -> torch.Tensor:
         # 1. 通道投影降维/升维
         x = self.act(self.norm(self.conv(x)))
+        # x = self.proj(x)
 
         # 2. 空间几何分辨率安全对齐
         if x.shape[-2:] != target_size:
@@ -139,6 +153,11 @@ class QualGate(nn.Module):
                 nn.init.constant_(adapter.norm.weight, 1.0)
                 nn.init.constant_(adapter.norm.bias, 0.0)
 
+
+        # for adapter in self.adapters:
+        #     if hasattr(adapter.proj[-2], 'weight') and adapter.proj[-2].weight is not None:
+        #         nn.init.constant_(adapter.proj[-2].weight, 1.0)
+        #         nn.init.constant_(adapter.proj[-2].bias, 0.0)
 
     def forward(
         self, a_in: torch.Tensor, c_list: List[torch.Tensor]
