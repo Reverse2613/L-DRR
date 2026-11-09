@@ -52,13 +52,29 @@ class ATRUMODPairDataset(DetDataset):
         transforms: Optional[Any] = None,
         return_masks: bool = False,
         max_retry: int = 5,
+        strict_conditions: bool = False,
+        strict_loading: bool = False,
     ) -> None:
+        r"""初始化图像配对与条件解析策略。
+
+        Args:
+            img_folder: IR图像目录。
+            ann_folder: IR参考框与六条件XML目录。
+            img_folder_rgb: RGB图像目录；未设置时按现有目录规则推导。
+            transforms: 成对图像/框的预处理。
+            return_masks: 保留现有接口。
+            max_retry: 旧模式的随机重试次数。
+            strict_conditions: PG模式严格核验六条件，缺失/非法立即报错。
+            strict_loading: 读取失败立即报错，禁止随机换图影响评估ID。
+        """
         super().__init__()
         self.img_folder_ir: str = os.path.abspath(img_folder)
         self.ann_folder: str = os.path.abspath(ann_folder)
         self._transforms = transforms
         self.return_masks: bool = return_masks
         self.max_retry: int = max_retry
+        self.strict_conditions: bool = strict_conditions
+        self.strict_loading: bool = strict_loading
 
         if img_folder_rgb is not None and os.path.exists(img_folder_rgb):
             self.img_folder_rgb: str = os.path.abspath(img_folder_rgb)
@@ -96,6 +112,11 @@ class ATRUMODPairDataset(DetDataset):
         return None
 
     def _load_and_verify_triplets(self) -> List[str]:
+        r"""核对同名IR/RGB/XML配对，严格模式缺配对即报错。
+
+        Returns:
+            按文件名排序的有效样本ID，不重新编号文件内容。
+        """
         if not os.path.exists(self.img_folder_ir):
             raise FileNotFoundError(f"红外目录不存在: {self.img_folder_ir}")
 
@@ -104,6 +125,8 @@ class ATRUMODPairDataset(DetDataset):
             for f in os.listdir(self.img_folder_ir)
             if f.lower().endswith((".jpg", ".png", ".bmp", ".jpeg"))
         ]
+        if self.strict_loading and len(candidates) != len(set(candidates)):
+            raise ValueError(f"{self.img_folder_ir}: 同一ID存在多个图像扩展名，评估ID不唯一。")
 
         valid_ids: List[str] = []
         image_exts = [".jpg", ".png", ".bmp", ".jpeg"]
@@ -116,6 +139,10 @@ class ATRUMODPairDataset(DetDataset):
 
             if ir_p and rgb_p and ann_p:
                 valid_ids.append(file_id)
+            elif self.strict_loading:
+                raise FileNotFoundError(
+                    f"样本{file_id}配对不完整：IR={ir_p}, RGB={rgb_p}, XML={ann_p}。"
+                )
 
         return valid_ids
 
@@ -146,26 +173,59 @@ class ATRUMODPairDataset(DetDataset):
         # 异常默认回退为正午 12:00 (phi = pi -> sin=0.0, cos=-1.0)
         return 0.0, -1.0
 
-    def _parse_xml(self, xml_path: str, orig_w: int, orig_h: int) -> Dict[str, Any]:
-        r"""解析 XML 中的旋转目标框及 6 维物理属性."""
-        tree = ET.parse(xml_path)
-        root = tree.getroot()
+    def _parse_conditions(self, root: ET.Element, xml_path: str) -> Dict[str, torch.Tensor]:
+        r"""解析图像级六条件，PG严格模式不补默认值或裁剪。
 
-        # 1. 6 维条件先验解析
-        raw_height = float(root.findtext("UAVheight", default="120.0"))
-        raw_angle = float(root.findtext("UAVangle", default="45.0"))
-        raw_time_str = root.findtext("time", default="12:00")
+        Args:
+            root: 一张图像的XML根节点。
+            xml_path: 用于错误定位的XML路径。
 
-        # 连续量归一化 (使用实际检查出的真实物理极值)
-        height_norm = float(np.clip((raw_height - 80.0) / (300.0 - 80.0), 0.0, 1.0))
-        angle_norm = float(np.clip(raw_angle / 75.0, 0.0, 1.0))
-        time_sin, time_cos = self._parse_time_harmonic(raw_time_str)
+        Returns:
+            height/angle各[1]、time[2] float32，三个类别为int64标量。
+            PG严格模式另保留height_m/angle_deg各[1]，供后续GC读取原始单位值。
 
-        # 离散量映射
-        weather_id = int(np.clip(int(root.findtext("weather", default="0")), 0, 9))
-        illum_id = int(np.clip(int(root.findtext("illumination", default="1")), 0, 6))
-        loc_id = int(np.clip(int(root.findtext("location", default="0")), 0, 10))
-
+        Raises:
+            ValueError: 严格模式下字段缺失、非有限、越界或时间格式非法。
+        """
+        if self.strict_conditions:
+            fields = ("UAVheight", "UAVangle", "time", "weather", "illumination", "location")
+            raw = {field: (root.findtext(field) or "").strip() for field in fields}
+            missing = [field for field, value in raw.items() if not value]
+            if missing:
+                raise ValueError(f"{xml_path}: 缺少显式条件{', '.join(missing)}。")
+            try:
+                raw_height, raw_angle = float(raw["UAVheight"]), float(raw["UAVangle"])
+                weather_id, illum_id, loc_id = (int(raw[field]) for field in fields[3:])
+            except ValueError as error:
+                raise ValueError(f"{xml_path}: 高度/倾角或类别编号不是合法数值。") from error
+            if not math.isfinite(raw_height) or not 80.0 <= raw_height <= 300.0:
+                raise ValueError(f"{xml_path}: UAVheight={raw_height}不在80–300 m。")
+            if not math.isfinite(raw_angle) or not 0.0 <= raw_angle <= 75.0:
+                raise ValueError(f"{xml_path}: UAVangle={raw_angle}不在0–75°。")
+            for field, value, count in (("weather", weather_id, 10),
+                                        ("illumination", illum_id, 7), ("location", loc_id, 11)):
+                if not 0 <= value < count:
+                    raise ValueError(f"{xml_path}: {field}={value}不在0–{count - 1}。")
+            match = re.search(r"(?:T|^)(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?$", raw["time"])
+            if match is None:
+                raise ValueError(f"{xml_path}: time={raw['time']!r}不是合法时刻。")
+            hour, minute = int(match.group(1)), int(match.group(2))
+            second = int(match.group(3) or 0)
+            if not (0 <= hour < 24 and 0 <= minute < 60 and 0 <= second < 60):
+                raise ValueError(f"{xml_path}: time={raw['time']!r}时分秒越界。")
+            phase = 2.0 * math.pi * (hour + minute / 60.0 + second / 3600.0) / 24.0
+            time_sin, time_cos = math.sin(phase), math.cos(phase)
+            height_norm, angle_norm = (raw_height - 80.0) / 220.0, raw_angle / 75.0
+        else:
+            # 保留历史模型的数据行为；新PG配置显式启用严格模式。
+            raw_height = float(root.findtext("UAVheight", default="120.0"))
+            raw_angle = float(root.findtext("UAVangle", default="45.0"))
+            height_norm = float(np.clip((raw_height - 80.0) / 220.0, 0.0, 1.0))
+            angle_norm = float(np.clip(raw_angle / 75.0, 0.0, 1.0))
+            time_sin, time_cos = self._parse_time_harmonic(root.findtext("time", default="12:00"))
+            weather_id = int(np.clip(int(root.findtext("weather", default="0")), 0, 9))
+            illum_id = int(np.clip(int(root.findtext("illumination", default="1")), 0, 6))
+            loc_id = int(np.clip(int(root.findtext("location", default="0")), 0, 10))
         conditions = {
             "height": torch.tensor([height_norm], dtype=torch.float32),
             "angle": torch.tensor([angle_norm], dtype=torch.float32),
@@ -174,6 +234,17 @@ class ATRUMODPairDataset(DetDataset):
             "illumination": torch.tensor(illum_id, dtype=torch.int64),
             "location": torch.tensor(loc_id, dtype=torch.int64),
         }
+        if self.strict_conditions:
+            conditions["height_m"] = torch.tensor([raw_height], dtype=torch.float32)
+            conditions["angle_deg"] = torch.tensor([raw_angle], dtype=torch.float32)
+        return conditions
+
+    def _parse_xml(self, xml_path: str, orig_w: int, orig_h: int) -> Dict[str, Any]:
+        r"""解析 XML 中的旋转目标框及 6 维物理属性."""
+        tree = ET.parse(xml_path)
+        root = tree.getroot()
+
+        conditions = self._parse_conditions(root, xml_path)
 
         # 2. 目标旋转框解析
         boxes: List[List[float]] = []
@@ -185,6 +256,8 @@ class ATRUMODPairDataset(DetDataset):
             # 强类型拦截防御：如果出现未知类别立即报警，绝不静默跳过
             if cls_name not in self.category2label:
                 logger.error(f"在文件 {xml_path} 中检测到未注册的未知类别: '{cls_name}'！")
+                if self.strict_loading:
+                    raise ValueError(f"{xml_path}: 未注册目标类别{cls_name!r}，不跳过该目标。")
                 continue
 
             robndbox = obj.find("robndbox")
@@ -268,7 +341,26 @@ class ATRUMODPairDataset(DetDataset):
 
         return {"ir": img_ir, "rgb": img_rgb}, target
 
-    def __getitem__(self, idx: int):
+    def __getitem__(self, idx: int) -> Tuple[Any, Dict[str, Any]]:
+        r"""读取一个固定ID的样本，并执行配置的成对预处理。
+
+        Args:
+            idx: img_ids中的位置。
+
+        Returns:
+            成对图像（预处理后可为[6,H,W]张量）及含条件的target。
+        """
+        if self.strict_loading:
+            # 同一个评估image_id必须对应同一张图；失败时不能随机替换。
+            try:
+                paired_imgs, target = self._load_single_pair(idx)
+                if self._transforms is not None:
+                    result = self._transforms(paired_imgs, target, self)
+                    paired_imgs, target = result[0], result[1]
+                return paired_imgs, target
+            except Exception:
+                logger.exception("严格读取样本%s失败，保留原ID并中止。", self.img_ids[idx])
+                raise
         for attempt in range(self.max_retry):
             try:
                 paired_imgs, target = self._load_single_pair(idx)
@@ -277,6 +369,9 @@ class ATRUMODPairDataset(DetDataset):
                     paired_imgs, target = res[0], res[1]
                 return paired_imgs, target
             except Exception as e:
+                if self.strict_conditions:
+                    logger.exception("显式条件样本%s读取失败，不进行随机替换。", self.img_ids[idx])
+                    raise
                 logger.error(f"读取样本 {self.img_ids[idx]} 异常: {e}. 启动重采样...")
                 idx = np.random.randint(0, len(self.img_ids))
         raise RuntimeError(f"样本读取重试 {self.max_retry} 次仍失败！")

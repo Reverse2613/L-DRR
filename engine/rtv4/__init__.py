@@ -24,3 +24,5 @@ from .dinov3_teacher import DINOv3TeacherModel
 
 from .rtv4_infranet import RTv4_Infranet
 from .rtv4_obb_criterion_infranet import RTv4OBBCriterion_Infranet
+
+from .rtv4_pg import RTv4_PG

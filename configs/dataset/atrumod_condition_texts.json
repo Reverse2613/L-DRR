@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "source": "ATR-UMOD/attribute_details.txt",
+  "source_sha256": "bfc223b8076a782a9d9e5ed8defaabb5aa53d618fc11005612cab0d8b6cacfae",
+  "text_policy": "Preserve source text exactly; sort entries by integer category id.",
+  "weather": [
+    {
+      "id": 0,
+      "text": "Sunny"
+    },
+    {
+      "id": 1,
+      "text": "Cloudy"
+    },
+    {
+      "id": 2,
+      "text": "Rainy"
+    },
+    {
+      "id": 3,
+      "text": "After Rain"
+    },
+    {
+      "id": 4,
+      "text": "Foggy"
+    },
+    {
+      "id": 5,
+      "text": "Snowy"
+    },
+    {
+      "id": 6,
+      "text": "Sunny_Night"
+    },
+    {
+      "id": 7,
+      "text": "Cloudy_Night"
+    },
+    {
+      "id": 8,
+      "text": "Sunny_Near_Night"
+    },
+    {
+      "id": 9,
+      "text": "Cloudy_Near_Night"
+    }
+  ],
+  "illumination": [
+    {
+      "id": 0,
+      "text": "Overexposure illumination conditions with Uniform bright illumination"
+    },
+    {
+      "id": 1,
+      "text": "Normal illumination conditions with Uniform normal illumination"
+    },
+    {
+      "id": 2,
+      "text": "Pre-Twilight illumination conditions with Non-uniform dim illumination"
+    },
+    {
+      "id": 3,
+      "text": "Post-Twilight illumination conditions with Non-uniform dim illumination"
+    },
+    {
+      "id": 4,
+      "text": "Dim illumination conditions with Uniform dim illumination"
+    },
+    {
+      "id": 5,
+      "text": "Near Night illumination conditions with Uniform dark illumination"
+    },
+    {
+      "id": 6,
+      "text": "Night illumination conditions with Non-uniform no illumination"
+    }
+  ],
+  "location": [
+    {
+      "id": 0,
+      "text": "Road in the Urban villages"
+    },
+    {
+      "id": 1,
+      "text": "Neighborhood in the Urban villages"
+    },
+    {
+      "id": 2,
+      "text": "Construction site in the Urban Suburb"
+    },
+    {
+      "id": 3,
+      "text": "Road in the Urban Suburb"
+    },
+    {
+      "id": 4,
+      "text": "School in the Urban Suburb"
+    },
+    {
+      "id": 5,
+      "text": "Factory in the Urban Suburb"
+    },
+    {
+      "id": 6,
+      "text": "Parking Lot in the Urban Subur"
+    },
+    {
+      "id": 7,
+      "text": "Neighborhood in the Urban Suburb"
+    },
+    {
+      "id": 8,
+      "text": "Road in the Urban Center"
+    },
+    {
+      "id": 9,
+      "text": "Construction site in the Urban villages"
+    },
+    {
+      "id": 10,
+      "text": "Parking Lot in the Urban villages"
+    }
+  ]
+}

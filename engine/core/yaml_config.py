@@ -95,7 +95,11 @@ class YAMLConfig(BaseConfig):
     def optimizer(self, ) -> optim.Optimizer:
         if self._optimizer is None and 'optimizer' in self.yaml_cfg:
             params = self.get_optim_params(self.yaml_cfg['optimizer'], self.model)
-            self._optimizer = create('optimizer', self.global_cfg, params=params)
+            global_cfg = self.global_cfg
+            # 这两个键用于PG的参数组构造，不是torch.optim.AdamW的构造参数。
+            global_cfg['optimizer'].pop('param_group_strategy', None)
+            global_cfg['optimizer'].pop('backbone_affine_lr', None)
+            self._optimizer = create('optimizer', global_cfg, params=params)
         return super().optimizer
 
     @property
@@ -180,6 +184,16 @@ class YAMLConfig(BaseConfig):
         """
         assert 'type' in cfg, ''
         cfg = copy.deepcopy(cfg)
+
+        strategy = cfg.pop('param_group_strategy', None)
+        if strategy is not None:
+            if strategy != 'pg_module1':
+                raise ValueError(f'Unknown optimizer parameter grouping strategy: {strategy}')
+            from ..optim.pg_param_groups import build_pg_param_groups
+            return build_pg_param_groups(
+                model, lr=cfg['lr'], weight_decay=cfg['weight_decay'],
+                backbone_affine_lr=cfg['backbone_affine_lr'],
+            )
 
         if 'params' not in cfg:
             return model.parameters()

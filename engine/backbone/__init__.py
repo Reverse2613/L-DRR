@@ -30,3 +30,5 @@ from .single_hgnetv2_rgb import SingleHGNetv2_RGB
 from .qual_gate import QualGate
 from .dual_hgnetv2_infranet import DualHGNetv2_InfraNet
 from .dual_hgnetv2_infranet_improve import DualHGNetv2_InfraNet_Improve
+
+from .dual_hgnetv2_pg import DualHGNetv2_PG

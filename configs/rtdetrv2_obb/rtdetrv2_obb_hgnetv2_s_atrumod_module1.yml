@@ -1,0 +1,147 @@
+# 模块一最小原型：DT-CPN + CM-CME + CG-DMF。
+# 两路ImageNet预训练，无随机数据增强；不包含模块二GC-Decoder或条件预测损失。
+# 当前val仍使用已有官方test作开发评估，历史上它已参与选优。
+# 此配置用于工程原型，不能将这里的best结果称为未接触测试集结果。
+__include__: [
+  '../dataset/atrumod_rgbt.yml',
+  '../runtime.yml',
+  '../base/dataloader.yml',
+  '../base/rtv2_optimizer.yml',
+  '../base/rtv2_r50vd.yml',
+]
+
+output_dir: ./outputs/rtdetrv2_obb_hgnetv2_s_atrumod_module1
+eval_spatial_size: [512, 640]
+model: RTv4_PG
+criterion: RTv4OBBCriterion
+postprocessor: PostProcessorOBB
+
+RTv4_PG:
+  backbone: DualHGNetv2_PG
+  encoder: HybridEncoder
+  decoder: RTDETRTransformerv2OBB
+
+DualHGNetv2_PG:
+  name: B0
+  return_idx: [1, 2, 3]
+  freeze_at: -1
+  freeze_norm: False
+  use_lab: True
+  pretrained: True
+  local_model_dir: ./pretrain/hgnetv2/
+  anchor_dir: ./pretrain/condition_anchors/clip_vit_b16_64
+  texts_path: ./configs/dataset/atrumod_condition_texts.json
+
+HybridEncoder:
+  in_channels: [256, 512, 1024]
+  feat_strides: [8, 16, 32]
+  version: rt_detrv2
+  expansion: 0.5
+  depth_mult: 0.34
+  hidden_dim: 224
+  eval_spatial_size: [512, 640]
+  use_encoder_idx: [2]
+  num_encoder_layers: 1
+  nhead: 8
+  dim_feedforward: 1024
+
+RTDETRTransformerv2OBB:
+  feat_channels: [224, 224, 224]
+  feat_strides: [8, 16, 32]
+  hidden_dim: 224
+  num_levels: 3
+  num_layers: 3
+  num_queries: 300
+  num_denoising: 100
+  label_noise_ratio: 0.5
+  box_noise_scale: 1.0
+  learn_query_content: False
+  eval_idx: -1
+  num_points: [4, 4, 4]
+  cross_attn_method: default
+  query_select_method: default
+  query_pos_method: default
+  anchor_aspect_ratio: 1.0
+  eval_spatial_size: [512, 640]
+
+PostProcessorOBB:
+  num_top_queries: 300
+  input_shape: [512, 640]
+
+RTv4OBBCriterion:
+  weight_dict: {loss_focal: 1, loss_l1: 5, loss_kld: 5}
+  losses: ['focal', 'l1', 'kld']
+  alpha: 0.75
+  gamma: 2.0
+  use_uni_set: True
+  matcher:
+    type: HungarianMatcherOBB
+    weight_dict: {cost_class: 2, cost_bbox: 0, cost_hausdorff: 5, cost_giou: 5}
+    alpha: 0.25
+    gamma: 2.0
+
+epoches: 36
+checkpoint_freq: 20
+use_amp: True
+use_ema: True
+sync_bn: False                       # 本配置面向单GPU原型。
+clip_max_norm: 0.1
+ema:
+  type: ModelEMA
+  decay: 0.9999
+  warmups: 2000
+  start: 0
+
+# 仓库flatcosine使用二次warmup；各组按自身基础LR执行同一相对调度。
+lrsheduler: flatcosine
+warmup_iter: 500
+flat_epoch: 22
+no_aug_epoch: 0
+lr_gamma: 0.1
+
+optimizer:
+  type: AdamW
+  # 新策略按module类型和parameter对象分组，不使用易重叠的名称正则。
+  # 两个HGNetv2支路的Norm/bias/LAB标量LR=1e-4；其余可训练参数LR=1e-4。
+  # 所有Norm/bias/Embedding/标量WD=0；主体矩阵WD=1e-4；冻结锚点不进优化器。
+  param_group_strategy: pg_module1
+  backbone_affine_lr: 0.0001
+  params: ~                          # 清除include中的旧正则组。
+  lr: 0.0001
+  betas: [0.9, 0.999]
+  weight_decay: 0.0001
+
+train_dataloader:
+  total_batch_size: 8                 # 与已有基线一致；已在16GB GPU上核验完整前后向。
+  num_workers: 4
+  dataset:
+    strict_conditions: True          # 缺失/越界不默认填值，不静默裁剪。
+    strict_loading: True             # 读取失败不随机换另一张样本。
+    transforms:
+      type: Compose
+      ops:
+        - {type: PairedResizeOBB, size: [512, 640]}
+        - {type: PairedSanitizeBoundingBoxesOBB, min_size: 1.0}
+        - {type: PairedConvertPILToTensor, dtype: float32, scale: True}
+        - {type: PairedConvertOBB, normalize: True}
+      policy: {name: default}
+  collate_fn:
+    base_size: 640
+    base_size_repeat: ~
+    mixup_prob: 0.0
+    stop_epoch: 36
+    ema_restart_decay: 0.9999
+
+val_dataloader:
+  total_batch_size: 16
+  num_workers: 4
+  dataset:
+    strict_conditions: True
+    strict_loading: True
+    transforms:
+      type: Compose
+      ops:
+        - {type: PairedResizeOBB, size: [512, 640]}
+        - {type: PairedSanitizeBoundingBoxesOBB, min_size: 1.0}
+        - {type: PairedConvertPILToTensor, dtype: float32, scale: True}
+        - {type: PairedConvertOBB, normalize: True}

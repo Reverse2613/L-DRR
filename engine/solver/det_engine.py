@@ -22,6 +22,7 @@ from ..optim import ModelEMA, Warmup
 from ..data import CocoEvaluator
 from ..misc import MetricLogger, SmoothedValue, dist_utils
 from ..misc.vis_obb import visualize_obb_training
+from ..data.condition_utils import requires_explicit_conditions, stack_batch_conditions
 
 
 def _to_device(item, device):
@@ -83,15 +84,24 @@ def train_one_epoch(self_lr_scheduler, lr_scheduler, model: torch.nn.Module, cri
         global_step = epoch * len(data_loader) + i
         metas = dict(epoch=epoch, step=i, global_step=global_step, epoch_step=len(data_loader))
 
+        # 新模型仅提取图像级六条件；旧模型沿用原调用，不增加GT输入。
+        condition_kwargs = {}
+        uses_conditions = requires_explicit_conditions(model)
+        if self_lr_scheduler and uses_conditions:
+            # PG按当前batch先设置LR，避免首步绕过warmup；旧模型保留原时序。
+            optimizer = lr_scheduler.step(cur_iters + i, optimizer)
+        if uses_conditions:
+            condition_kwargs["conditions"] = stack_batch_conditions(targets, device)
+
         teacher_encoder_output_for_distillation = None
         if teacher_model is not None:
             with torch.no_grad():
                 teacher_encoder_output_for_distillation = teacher_model(samples).detach()
 
         if scaler is not None:
-            with torch.autocast(device_type=str(device), cache_enabled=True):
+            with torch.autocast(device_type=device.type, cache_enabled=True):
                 outputs = model(samples, targets=targets,
-                                teacher_encoder_output=teacher_encoder_output_for_distillation)
+                                teacher_encoder_output=teacher_encoder_output_for_distillation, **condition_kwargs)
 
             if torch.isnan(outputs['pred_boxes']).any() or torch.isinf(outputs['pred_boxes']).any():
                 print(f"\n[NaN Detected] Epoch {epoch}, Step {i}")
@@ -101,7 +111,7 @@ def train_one_epoch(self_lr_scheduler, lr_scheduler, model: torch.nn.Module, cri
                  if output_dir:
                      visualize_obb_training(samples, targets, outputs, epoch, i, output_dir)
 
-            with torch.autocast(device_type=str(device), enabled=False):
+            with torch.autocast(device_type=device.type, enabled=False):
                 loss_dict = criterion(outputs, targets, **metas)
 
             loss = sum(loss_dict.values())
@@ -124,7 +134,7 @@ def train_one_epoch(self_lr_scheduler, lr_scheduler, model: torch.nn.Module, cri
 
         else:
             outputs = model(samples, targets=targets,
-                            teacher_encoder_output=teacher_encoder_output_for_distillation) # NEW kwarg
+                            teacher_encoder_output=teacher_encoder_output_for_distillation, **condition_kwargs) # NEW kwarg
 
             if dist_utils.is_main_process() and epoch < 3 and i == 0:
                  output_dir = kwargs.get('output_dir', '.')
@@ -154,7 +164,8 @@ def train_one_epoch(self_lr_scheduler, lr_scheduler, model: torch.nn.Module, cri
             ema.update(model)
 
         if self_lr_scheduler:
-            optimizer = lr_scheduler.step(cur_iters + i, optimizer)
+            if not uses_conditions:
+                optimizer = lr_scheduler.step(cur_iters + i, optimizer)
         else:
             if lr_warmup_scheduler is not None:
                 lr_warmup_scheduler.step()
@@ -212,7 +223,12 @@ def evaluate(model: torch.nn.Module, criterion: torch.nn.Module, postprocessor, 
         # 递归安全搬运
         targets = [{k: _to_device(v, device) for k, v in t.items()} for t in targets]
 
-        outputs = model(samples)
+        if requires_explicit_conditions(model):
+            # 推理只传白名单六条件，不向模型传包含框/类别的完整targets。
+            conditions = stack_batch_conditions(targets, device)
+            outputs = model(samples, conditions=conditions)
+        else:
+            outputs = model(samples)
 
         # --- Visualization Start ---
         if vis_count < 10:
