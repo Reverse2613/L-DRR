@@ -1,10 +1,10 @@
-# daily plan
+# daily work
 
 11-4
 
 1.把atrumod_condition_evaluator.py、atr-umod_dataset.py代码看完
 
-2.可视化查明InfraNet效果不好的原因，把log.txt发送给ai看，让ai带着我一起从损失等信息解读出一些原因
+2.可视化查明InfraNet效果不好的原因，把log.txt发送给ai看，让ai带着我一起从损失等信息解读出一些原因❌
 
 3.复现RT-DETR的双光融合检测论文
 
@@ -20,4 +20,9 @@
 
 11-6
 
-1.lz一定要仔细分析Infranet为啥不行。
+1.lz一定要仔细分析Infranet为啥不行。❌
+
+
+11-8
+
+1.GitHub项目的README.md详解仔细看看。

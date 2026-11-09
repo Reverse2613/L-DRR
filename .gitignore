@@ -39,3 +39,8 @@ desktop.ini
 # 6. LatexPaper文件夹，使用latex写论文的文件夹
 paper/
 weights/
+
+#7. tools/下生成的可视化分析图
+
+tools/*.png
+plan/

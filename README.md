@@ -91,7 +91,7 @@ python train.py -c configs/rtdetrv2_obb/rtdetrv2_obb_hgnetv2_s_atrumod_add_basel
 
 best score：epoch20，mAP=0.54038
 
-## 模块一
+## 模块一(显示条件先验损失约束)
 
 - rtdetrv2_obb_decoder.py（rtv4，因为原版代码有点错误，修改了可变形注意力时的旋转采样）
 - rtv4.py（rtv4，添加了透传训练时期的预测条件输出，为了送给criterion计算损失）
@@ -239,3 +239,7 @@ best score：epoch17，mAP=0.484696
 经过以上的超参数与训练设置，得到目前最优解是：
 
 所有的“norm|bn|bias|embed”不开启权重衰减，学习率全部设置为0.0001，学习率预热500iter，开启学习率余弦退火.（引入了新模块时）
+
+
+
+
