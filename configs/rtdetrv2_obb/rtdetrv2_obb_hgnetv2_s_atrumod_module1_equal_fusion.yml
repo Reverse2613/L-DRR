@@ -1,0 +1,8 @@
+# 单因素消融：固定互补后两路权重各0.5，保留CM-CME和末端投影/Norm。
+__include__: ['./rtdetrv2_obb_hgnetv2_s_atrumod_module1.yml']
+output_dir: ./outputs/rtdetrv2_obb_hgnetv2_s_atrumod_module1_equal_fusion
+find_unused_parameters: True
+DualHGNetv2_PG:
+  condition_mode: real
+  enable_exchange: True
+  dynamic_fusion: False

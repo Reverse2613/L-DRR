@@ -50,6 +50,19 @@ class ModelEMA(object):
         for p in self.module.parameters():
             p.requires_grad_(False)
 
+        # 新冻结CLIP先验声明其固定缓存；精确复制，避免浮点EMA算术改变向量。
+        # 旧模型未声明ema_copy_buffers，所有既有参数/缓冲区仍按原规则更新。
+        self._ema_copy_buffer_names: set[str] = set()
+        for module_name, submodule in self.module.named_modules():
+            names = getattr(submodule, 'ema_copy_buffers', ())
+            if not isinstance(names, (tuple, list)):
+                raise ValueError('ema_copy_buffers必须是本模块固定buffer名称序列。')
+            for name in names:
+                if not isinstance(name, str) or name not in submodule._buffers:
+                    raise ValueError(f'{module_name}声明了不存在的EMA固定buffer：{name}。')
+                key = f'{module_name}.{name}' if module_name else name
+                self._ema_copy_buffer_names.add(key)
+
 
     def update(self, model: nn.Module):
         if self.before_start < self.start:
@@ -61,7 +74,9 @@ class ModelEMA(object):
             d = self.decay_fn(self.updates)
             msd = dist_utils.de_parallel(model).state_dict()
             for k, v in self.module.state_dict().items():
-                if v.dtype.is_floating_point:
+                if k in self._ema_copy_buffer_names:
+                    v.copy_(msd[k].detach())
+                elif v.dtype.is_floating_point:
                     v *= d
                     v += (1 - d) * msd[k].detach()
 

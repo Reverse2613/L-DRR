@@ -1,0 +1,16 @@
+# 模块一条件表示对照：三条件联合文本 → 冻结CLIP原始512维向量。
+# 770种原始类别组合离线编码；不使用高度/角度/时间，不做64维投影，
+# 不含类别残差、条件LayerNorm或条件MLP。相同三条件组合的c始终不变。
+# CM-CME/CG-DMF机制不改，仅条件Linear的输入从128增至512，参数量随之增加。
+# 继承原module1的预训练、36轮、无增强、优化器、EMA、batch与LR调度。
+# 必须从ImageNet预训练重新训练，不能用旧module1的checkpoint续训。
+__include__: ['./rtdetrv2_obb_hgnetv2_s_atrumod_module1.yml']
+
+output_dir: ./outputs/rtdetrv2_obb_hgnetv2_s_atrumod_module1_joint_clip512
+
+DualHGNetv2_PG:
+  condition_prior: frozen_clip_joint
+  anchor_dir: ./pretrain/condition_anchors/clip_vit_b16_joint_512
+  condition_mode: real
+  enable_exchange: False
+  dynamic_fusion: True

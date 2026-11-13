@@ -17,6 +17,7 @@ import torch
 from PIL import Image, ImageFile
 
 from ._dataset import DetDataset
+from ..condition_texts import build_six_condition_text, load_condition_descriptions
 from ...core import register
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -54,6 +55,7 @@ class ATRUMODPairDataset(DetDataset):
         max_retry: int = 5,
         strict_conditions: bool = False,
         strict_loading: bool = False,
+        condition_texts_path: Optional[str] = None,
     ) -> None:
         r"""初始化图像配对与条件解析策略。
 
@@ -66,6 +68,8 @@ class ATRUMODPairDataset(DetDataset):
             max_retry: 旧模式的随机重试次数。
             strict_conditions: PG模式严格核验六条件，缺失/非法立即报错。
             strict_loading: 读取失败立即报错，禁止随机换图影响评估ID。
+            condition_texts_path: 仅F组设置；附加完整六条件原文字符串。
+                默认为None，旧模型的数据字典与预处理保持原样。
         """
         super().__init__()
         self.img_folder_ir: str = os.path.abspath(img_folder)
@@ -75,6 +79,12 @@ class ATRUMODPairDataset(DetDataset):
         self.max_retry: int = max_retry
         self.strict_conditions: bool = strict_conditions
         self.strict_loading: bool = strict_loading
+        if condition_texts_path is not None and not strict_conditions:
+            raise ValueError("完整六条件原文模式要求strict_conditions=True，不使用默认条件。")
+        self.condition_descriptions = (
+            load_condition_descriptions(condition_texts_path)
+            if condition_texts_path is not None else None
+        )
 
         if img_folder_rgb is not None and os.path.exists(img_folder_rgb):
             self.img_folder_rgb: str = os.path.abspath(img_folder_rgb)
@@ -173,7 +183,7 @@ class ATRUMODPairDataset(DetDataset):
         # 异常默认回退为正午 12:00 (phi = pi -> sin=0.0, cos=-1.0)
         return 0.0, -1.0
 
-    def _parse_conditions(self, root: ET.Element, xml_path: str) -> Dict[str, torch.Tensor]:
+    def _parse_conditions(self, root: ET.Element, xml_path: str) -> Dict[str, Any]:
         r"""解析图像级六条件，PG严格模式不补默认值或裁剪。
 
         Args:
@@ -183,6 +193,7 @@ class ATRUMODPairDataset(DetDataset):
         Returns:
             height/angle各[1]、time[2] float32，三个类别为int64标量。
             PG严格模式另保留height_m/angle_deg各[1]，供后续GC读取原始单位值。
+            F组显式设置码表时另附condition_text字符串，保留原文日期。
 
         Raises:
             ValueError: 严格模式下字段缺失、非有限、越界或时间格式非法。
@@ -237,6 +248,10 @@ class ATRUMODPairDataset(DetDataset):
         if self.strict_conditions:
             conditions["height_m"] = torch.tensor([raw_height], dtype=torch.float32)
             conditions["angle_deg"] = torch.tensor([raw_angle], dtype=torch.float32)
+            if self.condition_descriptions is not None:
+                conditions["condition_text"] = build_six_condition_text(
+                    raw, self.condition_descriptions, xml_path,
+                )
         return conditions
 
     def _parse_xml(self, xml_path: str, orig_w: int, orig_h: int) -> Dict[str, Any]:

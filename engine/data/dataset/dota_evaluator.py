@@ -70,7 +70,9 @@ class DotaEvaluator(object):
         boxes should be (cx, cy, w, h, angle_norm)
         """
         for img_id, pred in predictions.items():
-            self.img_ids.append(img_id)
+            if isinstance(img_id, torch.Tensor):
+                img_id = img_id.item()
+            img_id = int(img_id)
 
             # Convert tensors to numpy
             boxes = pred['boxes'].cpu()
@@ -82,6 +84,8 @@ class DotaEvaluator(object):
             # angle_rad = (angle_norm * 90.0 - 90.0) * np.pi / 180.0
             # boxes[:, 4] = angle_rad
 
+            if img_id not in self.predictions:
+                self.img_ids.append(img_id)
             self.predictions[img_id] = {
                 'bboxes': boxes.numpy(), # (N, 5)
                 'scores': scores,
@@ -90,6 +94,7 @@ class DotaEvaluator(object):
 
     def synchronize_between_processes(self):
         if not dist_utils.is_dist_available_and_initialized():
+            self.accumulate()
             return
 
         # Gather predictions from all processes
@@ -100,18 +105,12 @@ class DotaEvaluator(object):
             merged_predictions.update(p)
         self.predictions = merged_predictions
 
-        # Also gather img_ids
-        all_img_ids = dist_utils.all_gather(self.img_ids)
-        merged_img_ids = []
-        for ids in all_img_ids:
-            merged_img_ids.extend(ids)
-
-        # Use set to remove potential duplicates if any (though usually shouldn't be with proper sampler)
-        # But img_ids need to be hashable (they are strings or ints usually)
-        self.img_ids = merged_img_ids
+        # The merged prediction dictionary already contains each image ID once.
+        # DistributedSampler may pad a split with repeated images.
+        self.accumulate()
 
     def accumulate(self):
-        pass
+        self.img_ids = list(self.predictions)
 
     def _get_target(self, idx):
         if hasattr(self.dataset, 'get_ann_info'):
@@ -125,6 +124,7 @@ class DotaEvaluator(object):
         return np.asarray(value)
 
     def summarize(self):
+        self.accumulate()
         print("Evaluating DOTA metrics...")
 
         print(f"Collected predictions for {len(self.predictions)} images.")

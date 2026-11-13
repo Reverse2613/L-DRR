@@ -1,0 +1,16 @@
+# F组：六条件按XML原文拼成固定模板，冻结CLIP原始512维向量。
+# 原始time包含日期；不降维、不额外归一化、不解耦、不加GC或新损失。
+# 先运行tools/build_six_condition_anchors.py生成新缓存；从ImageNet重新训练。
+__include__: ['./rtdetrv2_obb_hgnetv2_s_atrumod_module1_joint_clip512.yml']
+output_dir: ./outputs/rtdetrv2_obb_hgnetv2_s_atrumod_six_condition_clip512
+find_unused_parameters: True
+seed: 0
+DualHGNetv2_PG:
+  condition_prior: frozen_clip_six
+  anchor_dir: ./pretrain/condition_anchors/clip_vit_b16_six_512
+train_dataloader:
+  dataset:
+    condition_texts_path: ./configs/dataset/atrumod_condition_texts.json
+val_dataloader:
+  dataset:
+    condition_texts_path: ./configs/dataset/atrumod_condition_texts.json

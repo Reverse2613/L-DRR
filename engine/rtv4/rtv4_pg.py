@@ -1,6 +1,6 @@
 """模块一检测器：显式条件主干 + 原HybridEncoder + 原OBB Decoder。
 
-六条件通过独立参数传入；目标框/类别仅供训练期DN和损失使用。
+主干声明的条件通过独立参数传入；目标框/类别仅供训练期DN和损失使用。
 """
 
 from typing import Any, Dict, List, Mapping, Optional
@@ -35,7 +35,7 @@ class RTv4_PG(nn.Module):
     def forward(
         self, x: torch.Tensor, targets: Optional[List[Dict[str, Any]]] = None,
         teacher_encoder_output: Optional[torch.Tensor] = None,
-        conditions: Optional[Mapping[str, torch.Tensor]] = None,
+        conditions: Optional[Mapping[str, Any]] = None,
     ) -> Dict[str, Any]:
         r"""通过显式条件完成旋转检测前向。
 
@@ -43,7 +43,9 @@ class RTv4_PG(nn.Module):
             x: 图像对[B,6,H,W]，IR在前、RGB在后。
             targets: 训练GT列表，仅送入decoder的DN逻辑；推理时忽略。
             teacher_encoder_output: 保留原框架可选教师接口，本配置不使用。
-            conditions: 必需的六条件字典；训练与推理均通过此参数显式传入。
+            conditions: 主干所需的图像级条件字典；原DT-CPN为六条件，
+                联合冻结CLIP先验为三类别条件。训练与推理均显式传入。
+                完整六条件CLIP组为condition_text字符串列表，输出仍是512维。
 
         Returns:
             原检测器输出字典，含pred_logits[B,300,11]、pred_boxes[B,300,5]

@@ -1,0 +1,9 @@
+# 单因素消融：c=0；FiLM/门控/打分的bias仍可学习全局常量。
+# 从ImageNet预训练重新训练；其余设置继承模块一，不能用完整模型续训代替。
+__include__: ['./rtdetrv2_obb_hgnetv2_s_atrumod_module1.yml']
+output_dir: ./outputs/rtdetrv2_obb_hgnetv2_s_atrumod_module1_no_condition
+find_unused_parameters: True  # 兼容DDP中不参与损失的条件编码器参数。
+DualHGNetv2_PG:
+  condition_mode: zero
+  enable_exchange: True
+  dynamic_fusion: True

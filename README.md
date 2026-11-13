@@ -1,5 +1,7 @@
 # experiments
 
+环境条件如何帮助局部模态选择，同时避免损害基础视觉特征
+
 我已经从RiO-DETR里面抽取出来的最少最小可训练与测试的源代码，作为我本次自己的实验源代码仓库。
 
 ## Install and Getting Start
@@ -242,4 +244,39 @@ best score：epoch17，mAP=0.484696
 
 
 
+
+## DT-CPN、CM-CME、CG-DMF：
+
+best score：epoch22，mAP=0.516
+
+## module1_no_condition.yml：
+
+best score：epoch21，mAP=0.540046
+
+## module1_no_exchange.yaml:
+
+best score：epoch28，mAP=0.520541
+
+## module1_equal_fusion.yml:
+
+best score：epoch18，mAP=0.5417
+虽然还差几轮，但是从训练输出的日志可以发现，基本就是在递减了，就是在0.53波动了，所以我暂停了后面几轮的实验，不过不影响。
+
+## module1_joint_clip512.yml:
+
+best score：epoch25，mAP=0.553757
+
+## joint_clip512_constant.yml:
+
+best score：epoch20，mAP=0.539039
+
+## joint_clip512_random.yml：
+
+best score：epoch17，mAP=0.525610
+
+## joint_clip512_no_film：
+
+best score：epoch24，mAP=0.527503
+
+## six_condition_clip512：
 

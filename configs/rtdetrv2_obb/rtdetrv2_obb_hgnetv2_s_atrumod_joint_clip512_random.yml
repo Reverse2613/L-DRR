@@ -1,0 +1,9 @@
+# D组：保留真实组合编号，查固定随机512维表；逐行匹配原CLIP范数。
+# 随机表种子与训练seed分开记录，不根据检测成绩选择随机表。
+__include__: ['./rtdetrv2_obb_hgnetv2_s_atrumod_module1_joint_clip512.yml']
+output_dir: ./outputs/rtdetrv2_obb_hgnetv2_s_atrumod_joint_clip512_random
+find_unused_parameters: True
+seed: 0
+DualHGNetv2_PG:
+  condition_prior: frozen_clip_random
+  condition_random_seed: 20261112

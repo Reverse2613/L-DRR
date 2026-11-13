@@ -13,12 +13,12 @@ import torch.nn as nn
 class _ConditionedProfileModel(nn.Module):
     r"""仅供calflops的图像适配器，显式携带已声明的合成六条件。"""
 
-    def __init__(self, model: nn.Module, conditions: Mapping[str, torch.Tensor]) -> None:
+    def __init__(self, model: nn.Module, conditions: Mapping[str, Any]) -> None:
         r"""保存部署模型与同设备的profiler合成条件。
 
         Args:
             model: 已复制并deploy的PG模型。
-            conditions: 仅用于profiler的六条件batch，不是正常推理默认值。
+            conditions: 仅用于profiler的条件batch；支持F组完整缓存文本。
         """
         super().__init__()
         self.model = model
@@ -79,7 +79,11 @@ def stats(
             "illumination": torch.tensor([1], dtype=torch.int64, device=device),
             "location": torch.tensor([0], dtype=torch.int64, device=device),
         }
-        print("Profiler: 6通道图像对＋显式合成六条件（仅用于计算量统计）。")
+        prior = getattr(getattr(model_for_info, "backbone", None), "condition_encoder", None)
+        if callable(getattr(prior, "profiling_conditions", None)):
+            # F组不能使用虚构日期查表，显式取一条已缓存文本；不影响旧模型。
+            conditions = prior.profiling_conditions()
+        print("Profiler: 6通道图像对＋显式统计条件（仅用于计算量统计）。")
         # calflops对kwargs各值调用.to，且自动图像使用未初始化new_empty。
         # 因此用适配器携带条件，并显式传有限图像，避免严格数值检查误报。
         flops, macs, _ = calculate_flops(

@@ -113,7 +113,7 @@ class CMCME(nn.Module):
 
     def __init__(
         self, channels: int, condition_dim: int = 128,
-        state_dim: int = 32, norm_groups: int = 32,
+        state_dim: int = 32, norm_groups: int = 32, enable_film: bool = True,
     ) -> None:
         r"""建立一个尺度的两条主路径及两个独立方向。
 
@@ -122,6 +122,8 @@ class CMCME(nn.Module):
             condition_dim: 条件维度，默认128。
             state_dim: 局部状态维度，默认32。
             norm_groups: GroupNorm组数，必须整除channels，默认32。
+            enable_film: False只绕过FiLM，保留其参数、工作投影与消息分支。
+                默认True，旧配置与checkpoint的张量结构及计算保持原样。
 
         Raises:
             ValueError: 维度非正整数，或归一化组数不能整除通道数。
@@ -132,8 +134,11 @@ class CMCME(nn.Module):
             raise ValueError("CM-CME各维度及归一化组数必须是正整数。")
         if channels % norm_groups:
             raise ValueError("norm_groups必须整除channels，不自动调整组数。")
+        if type(enable_film) is not bool:
+            raise ValueError("enable_film必须是bool。")
         self.channels = channels
         self.condition_dim = condition_dim
+        self.enable_film = enable_film
         self.rgb_work = nn.Sequential(nn.Conv2d(channels, channels, 1, bias=False),
                                       nn.GroupNorm(norm_groups, channels))
         self.ir_work = nn.Sequential(nn.Conv2d(channels, channels, 1, bias=False),
@@ -206,8 +211,11 @@ class CMCME(nn.Module):
         # 1. 分别投影并归一化，得到共同工作空间S。
         s_rgb, s_ir = self.rgb_work(rgb), self.ir_work(ir)
         # 2. FiLM只调制残差主路径；后面的供需/差分仍从S读取。
-        z_rgb = self._apply_film(s_rgb, self.rgb_film(condition))
-        z_ir = self._apply_film(s_ir, self.ir_film(condition))
+        if self.enable_film:
+            z_rgb = self._apply_film(s_rgb, self.rgb_film(condition))
+            z_ir = self._apply_film(s_ir, self.ir_film(condition))
+        else:
+            z_rgb, z_ir = s_rgb, s_ir
         l_rgb, r_rgb, n_rgb = self.rgb_state(s_rgb)
         l_ir, r_ir, n_ir = self.ir_state(s_ir)
         # 3. 两个方向参数独立，均读取未更新的S和L。

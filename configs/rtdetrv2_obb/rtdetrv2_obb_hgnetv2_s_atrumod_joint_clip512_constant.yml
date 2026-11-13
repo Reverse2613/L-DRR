@@ -1,0 +1,9 @@
+# C组：所有图共用原CLIP表第0行；其余设置继承已完成的B组。
+# 从双路ImageNet预训练重新训练，不用B的检测checkpoint续训。
+__include__: ['./rtdetrv2_obb_hgnetv2_s_atrumod_module1_joint_clip512.yml']
+output_dir: ./outputs/rtdetrv2_obb_hgnetv2_s_atrumod_joint_clip512_constant
+find_unused_parameters: True
+seed: 0
+DualHGNetv2_PG:
+  condition_prior: frozen_clip_constant
+  condition_reference_row: 0

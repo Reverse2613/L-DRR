@@ -22,7 +22,9 @@ from ..optim import ModelEMA, Warmup
 from ..data import CocoEvaluator
 from ..misc import MetricLogger, SmoothedValue, dist_utils
 from ..misc.vis_obb import visualize_obb_training
-from ..data.condition_utils import requires_explicit_conditions, stack_batch_conditions
+from ..data.condition_utils import (
+    get_required_condition_fields, requires_explicit_conditions, stack_batch_conditions,
+)
 
 
 def _to_device(item, device):
@@ -84,14 +86,16 @@ def train_one_epoch(self_lr_scheduler, lr_scheduler, model: torch.nn.Module, cri
         global_step = epoch * len(data_loader) + i
         metas = dict(epoch=epoch, step=i, global_step=global_step, epoch_step=len(data_loader))
 
-        # 新模型仅提取图像级六条件；旧模型沿用原调用，不增加GT输入。
+        # 只提取模型声明的图像级条件；旧图像模型沿用原调用，不增加GT输入。
         condition_kwargs = {}
         uses_conditions = requires_explicit_conditions(model)
         if self_lr_scheduler and uses_conditions:
             # PG按当前batch先设置LR，避免首步绕过warmup；旧模型保留原时序。
             optimizer = lr_scheduler.step(cur_iters + i, optimizer)
         if uses_conditions:
-            condition_kwargs["conditions"] = stack_batch_conditions(targets, device)
+            condition_kwargs["conditions"] = stack_batch_conditions(
+                targets, device, fields=get_required_condition_fields(model)
+            )
 
         teacher_encoder_output_for_distillation = None
         if teacher_model is not None:
@@ -224,8 +228,10 @@ def evaluate(model: torch.nn.Module, criterion: torch.nn.Module, postprocessor, 
         targets = [{k: _to_device(v, device) for k, v in t.items()} for t in targets]
 
         if requires_explicit_conditions(model):
-            # 推理只传白名单六条件，不向模型传包含框/类别的完整targets。
-            conditions = stack_batch_conditions(targets, device)
+            # 推理只传已声明的条件白名单，不把完整targets送入模型。
+            conditions = stack_batch_conditions(
+                targets, device, fields=get_required_condition_fields(model)
+            )
             outputs = model(samples, conditions=conditions)
         else:
             outputs = model(samples)

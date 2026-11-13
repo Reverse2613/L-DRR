@@ -1,0 +1,8 @@
+# 单因素消融：去双向差分消息，保留工作投影、Norm、FiLM和CG-DMF。
+__include__: ['./rtdetrv2_obb_hgnetv2_s_atrumod_module1.yml']
+output_dir: ./outputs/rtdetrv2_obb_hgnetv2_s_atrumod_module1_no_exchange
+find_unused_parameters: True
+DualHGNetv2_PG:
+  condition_mode: real
+  enable_exchange: False
+  dynamic_fusion: True

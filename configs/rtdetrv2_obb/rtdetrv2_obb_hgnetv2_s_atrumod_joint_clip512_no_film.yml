@@ -1,0 +1,8 @@
+# E组：只绕过FiLM；保留工作投影、Norm、条件输入和CG-DMF。
+# 保留FiLM参数使公共初始化顺序不变；未使用参数不获得检测梯度。
+__include__: ['./rtdetrv2_obb_hgnetv2_s_atrumod_module1_joint_clip512.yml']
+output_dir: ./outputs/rtdetrv2_obb_hgnetv2_s_atrumod_joint_clip512_no_film
+find_unused_parameters: True
+seed: 0
+DualHGNetv2_PG:
+  enable_film: False

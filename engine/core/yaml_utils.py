@@ -21,9 +21,18 @@ __all__ = [
 INCLUDE_KEY = '__include__'
 
 
-def load_config(file_path, cfg=dict()):
-    """load config
+def load_config(file_path: str, cfg: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """加载YAML与include，顶层调用之间不共享可变默认字典。
+
+    Args:
+        file_path: YAML路径。
+        cfg: include递归使用的合并字典；None为本次顶层调用创建新字典。
+
+    Returns:
+        按include顺序合并后的配置；独立配置之间不会残留消融开关。
     """
+    if cfg is None:
+        cfg = {}
     _, ext = os.path.splitext(file_path)
     assert ext in ['.yml', '.yaml'], "only support yaml files"
 
