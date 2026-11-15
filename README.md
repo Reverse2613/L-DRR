@@ -280,3 +280,8 @@ best score：epoch24，mAP=0.527503
 
 ## six_condition_clip512：
 
+best score：epoch22，mAP=0.537521
+
+## joint_clip512_equal_fusion：
+
+best score：epoch27, mAP=0.535263

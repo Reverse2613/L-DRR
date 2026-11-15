@@ -1,0 +1,15 @@
+# U组：真实三条件CLIP512 + FiLM + 固定等权融合。
+# 继承B的双路ImageNet预训练、36轮、无随机增强、优化器、AMP/EMA及LR调度。
+# 唯一计算路径变化：各尺度的融合权重固定为RGB=IR=0.5；保留工作投影、
+# FiLM和融合输出投影/Norm，双向消息仍关闭，不是原始骨干特征直接相加。
+# 动态打分参数保留，维持与B相同的初始化顺序和state_dict结构；U中无梯度。
+# 必须从ImageNet预训练独立训练，不用B检测checkpoint续训；无需重建CLIP缓存。
+__include__: ['./rtdetrv2_obb_hgnetv2_s_atrumod_module1_joint_clip512.yml']
+
+output_dir: ./outputs/rtdetrv2_obb_hgnetv2_s_atrumod_joint_clip512_equal_fusion
+find_unused_parameters: True          # 兼容DDP中未使用的动态打分/双向消息参数。
+seed: 0                              # 启动仍须显式传 --seed 0，保证初始化生效。
+
+DualHGNetv2_PG:
+  enable_film: True
+  dynamic_fusion: False
