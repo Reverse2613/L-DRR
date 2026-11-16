@@ -121,6 +121,10 @@ class DetSolver(BaseSolver):
                 current_epoch=self.last_epoch,
             )
             for k in test_stats:
+                # 多 IoU 评测新增 AP75/AP50_95；mAP 仍是原 AP50 选模指标。
+                # COCO 路径没有 mAP 键，保留原行为。
+                if 'mAP' in test_stats and k != 'mAP':
+                    continue
                 stat_value = test_stats[k]
                 if isinstance(stat_value, (list, tuple)):
                     current_val = stat_value[0]
@@ -265,6 +269,10 @@ class DetSolver(BaseSolver):
                             self.writer.add_scalar(f'Test/{k}_{i}'.format(k), v, epoch)
                     else:
                         self.writer.add_scalar(f'Test/{k}', current_val, epoch)
+
+                # 所有指标仍写 TensorBoard 和 log.txt；只用旧 mAP 键选 checkpoint。
+                if 'mAP' in test_stats and k != 'mAP':
+                    continue
 
                 if k in best_stat:
                     best_stat['epoch'] = epoch if current_val > best_stat[k] else best_stat['epoch']

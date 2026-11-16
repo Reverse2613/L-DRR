@@ -8,7 +8,9 @@ import torch
 import numpy as np
 import os.path as osp
 from collections import defaultdict, OrderedDict
+from typing import Any, List, Optional
 from .mmeval import eval_rbbox_map, warmup_numba
+from .obb_metrics import resolve_iou_thresholds, metrics_from_iou_maps
 from ...core import register
 from ...misc import dist_utils
 
@@ -40,14 +42,25 @@ def rbox2qbox(rbox):
 
 @register()
 class DotaEvaluator(object):
-    def __init__(self, dataset, iou_types=None, iou_thrs=None):
+    def __init__(self, dataset: Any, iou_types: Optional[List[str]] = None,
+                 iou_thrs: Optional[List[float]] = None, report_full_metrics: bool = False,
+                 eval_workers: int = 4) -> None:
+        """建立几何旋转框评测器，旧配置仍只计算 AP50。
+
+        Args:
+            dataset: 提供 CLASSES、get_ann_info(index) 的 GT 数据集。
+            iou_types: 保留现有注册接口。
+            iou_thrs: 显式 IoU 序列；默认由 report_full_metrics 决定。
+            report_full_metrics: True 时计算 AP50/AP75/十阈值 AP50_95。
+            eval_workers: 类别评测进程数；1 为串行，默认保留原来的4进程。
+        """
         self.dataset = dataset
         self.iou_types = iou_types or ['mAP']
-        self.iou_thrs = [float(v) for v in (iou_thrs or [0.5])]
-        if not self.iou_thrs:
-            raise ValueError("iou_thrs must contain at least one IoU threshold")
-        if any(v <= 0.0 or v > 1.0 for v in self.iou_thrs):
-            raise ValueError(f"Invalid IoU thresholds: {self.iou_thrs}")
+        self.iou_thrs = list(resolve_iou_thresholds(iou_thrs, report_full_metrics))
+        self.report_full_metrics = report_full_metrics
+        if type(eval_workers) is not int or eval_workers < 1:
+            raise ValueError("eval_workers must be a positive integer")
+        self.eval_workers = eval_workers
         self.predictions = {}
         self.img_ids = []
         self.results = []
@@ -67,7 +80,7 @@ class DotaEvaluator(object):
     def update(self, predictions):
         """
         predictions: dict of {img_id: {'boxes': tensor, 'scores': tensor, 'labels': tensor}}
-        boxes should be (cx, cy, w, h, angle_norm)
+        boxes must be original-pixel (cx, cy, w, h, angle_radians).
         """
         for img_id, pred in predictions.items():
             if isinstance(img_id, torch.Tensor):
@@ -189,6 +202,7 @@ class DotaEvaluator(object):
                 scale_ranges=None,
                 iou_thr=iou_thr,
                 use_07_metric=True,
+                nproc=self.eval_workers,
                 # Preserve the original per-class table for the default AP50
                 # path, but keep multi-IoU evaluation output compact.
                 dataset=None if multi_iou else self.classes
@@ -203,24 +217,8 @@ class DotaEvaluator(object):
             self.stats = {'mAP': mean_ap}
             return
 
-        def metric_at(target):
-            for iou_thr, value in per_iou_ap.items():
-                if np.isclose(iou_thr, target):
-                    return value
-            raise ValueError(
-                f"Required IoU threshold {target:.2f} is missing from {self.iou_thrs}")
-
-        ap50 = metric_at(0.50)
-        ap75 = metric_at(0.75)
-        ap50_95 = float(np.mean(list(per_iou_ap.values())))
-
         self.eval_results = per_iou_results
-        self.stats = {
-            'AP50': ap50,
-            'AP75': ap75,
-            'AP50_95': ap50_95,
-        }
-        print(
-            "OBB_METRICS "
-            f"AP50={ap50:.6f} AP75={ap75:.6f} AP50_95={ap50_95:.6f}"
-        )
+        self.stats = metrics_from_iou_maps(per_iou_ap)
+        self.ap_by_iou = per_iou_ap
+        print("OBB_METRICS " + " ".join(
+            f"{key}={value:.6f}" for key, value in self.stats.items()))

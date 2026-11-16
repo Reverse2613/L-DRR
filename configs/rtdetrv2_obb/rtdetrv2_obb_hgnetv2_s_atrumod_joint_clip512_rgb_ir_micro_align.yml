@@ -1,0 +1,13 @@
+# 第一新增模块：B + RGB→IR微校准；原型没有其他network2模块或新损失。
+# 继承B的ImageNet预训练、三条件CLIP512、36轮、无增强、batch8、
+# AdamW分组/LR/WD、warmup500/flat22、AMP/EMA及AP50选模。
+# 从ImageNet独立训练；不使用-r/-t加载B检测checkpoint。
+__include__: ['./rtdetrv2_obb_hgnetv2_s_atrumod_module1_joint_clip512.yml']
+
+output_dir: ./outputs/rtdetrv2_obb_hgnetv2_s_atrumod_joint_clip512_rgb_ir_micro_align
+
+DualHGNetv2_PG:
+  enable_rgb_ir_alignment: True
+  # 每个坐标分量最多12个模型输入像素；512×640本轮即原图像素。
+  # 三尺度除以步长8/16/32，高度/倾角只调节≤1的经验包络。
+  alignment_max_shift_px: 12.0

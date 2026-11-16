@@ -32,3 +32,4 @@ from .dual_hgnetv2_infranet import DualHGNetv2_InfraNet
 from .dual_hgnetv2_infranet_improve import DualHGNetv2_InfraNet_Improve
 
 from .dual_hgnetv2_pg import DualHGNetv2_PG
+from .dual_hgnetv2_pg_gain_comp import DualHGNetv2_PG_GainComp

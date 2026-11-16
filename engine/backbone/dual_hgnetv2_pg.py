@@ -20,6 +20,7 @@ from .frozen_clip_condition import FrozenCLIPConditionPrior
 from .frozen_clip_controls import ConstantCLIPConditionPrior, RandomCLIPConditionPrior
 from .frozen_six_condition import FrozenSixCLIPConditionPrior
 from .hgnetv2 import HGNetv2
+from .rgb_ir_micro_alignment import RGBIRMicroAlignment, build_alignment_geometry
 
 
 LOGGER = logging.getLogger(__name__)
@@ -35,6 +36,7 @@ class DualHGNetv2_PG(nn.Module):
         condition_encoder: 原DT-CPN输出[B,128]；联合冻结CLIP先验输出[B,512]。
         exchange_layers: 三个独立CM-CME实例。
         fusion_layers: 三个独立CG-DMF实例。
+        rgb_ir_alignments: 仅微校准开关为True时存在的三个空间重采样模块。
     """
 
     requires_conditions = True
@@ -52,6 +54,8 @@ class DualHGNetv2_PG(nn.Module):
         enable_film: bool = True,
         condition_reference_row: int = 0,
         condition_random_seed: int = 20261112,
+        enable_rgb_ir_alignment: bool = False,
+        alignment_max_shift_px: float = 8.0,
     ) -> None:
         r"""建立双独立预训练主干和三尺度条件融合。
 
@@ -77,6 +81,11 @@ class DualHGNetv2_PG(nn.Module):
             enable_film: False只绕过条件仿射调制，工作投影与CG-DMF保留。
             condition_reference_row: 常量对照的预设原CLIP缓存行号。
             condition_random_seed: 随机对照表的种子，不消耗训练全局随机状态。
+            enable_rgb_ir_alignment: 第一新增模块；False保留旧计算/权重结构。
+                True在工作投影/Norm之后、FiLM之前只重采样RGB；本原型要求
+                enable_exchange=False，显式读取已有height/angle元数据。
+            alignment_max_shift_px: 三尺度统一的每分量输入像素偏移上限。
+                高度/倾角调节经验包络；本轮512×640输入即原图单位。
 
         Raises:
             ValueError: B0或尺度规格不符。
@@ -94,13 +103,18 @@ class DualHGNetv2_PG(nn.Module):
             "frozen_clip_six",
         ):
             raise ValueError("condition_prior不是已实现的显式条件编码选项。")
-        if any(type(flag) is not bool for flag in (enable_exchange, dynamic_fusion, enable_film)):
-            raise ValueError("enable_exchange、dynamic_fusion和enable_film必须是bool。")
+        if any(type(flag) is not bool for flag in (
+            enable_exchange, dynamic_fusion, enable_film, enable_rgb_ir_alignment,
+        )):
+            raise ValueError("enable_exchange、dynamic_fusion、enable_film和微校准开关必须是bool。")
+        if enable_rgb_ir_alignment and enable_exchange:
+            raise ValueError("首个微校准原型只支持enable_exchange=False，避免同时改变双向消息。")
         self.condition_mode = condition_mode
         self.enable_exchange = enable_exchange
         self.dynamic_fusion = dynamic_fusion
         self.condition_prior = condition_prior
         self.enable_film = enable_film
+        self.enable_rgb_ir_alignment = enable_rgb_ir_alignment
         self.stage_channels = (256, 512, 1024)
         self.pretrained_path: Optional[str] = None
         self.pretrained_sha256: Optional[str] = None
@@ -152,6 +166,19 @@ class DualHGNetv2_PG(nn.Module):
         self.fusion_layers = nn.ModuleList([
             CGDMF(channels, condition_dim=self.condition_dim) for channels in self.stage_channels
         ])
+        if enable_rgb_ir_alignment:
+            self.required_condition_fields = tuple(dict.fromkeys(
+                (*self.required_condition_fields, "height", "angle"),
+            ))
+            # 新模块初始化不推进全局CPU随机状态，保证后续Encoder/Decoder与B
+            # 同seed初始化完全相同。旧配置不实例化新模块，不增加state_dict键。
+            with torch.random.fork_rng(devices=[]):
+                self.rgb_ir_alignments = nn.ModuleList([
+                    RGBIRMicroAlignment(channels, stride, alignment_max_shift_px)
+                    for channels, stride in zip(self.stage_channels, (8, 16, 32))
+                ])
+            LOGGER.info("启用RGB→IR微校准：每分量输入像素上限=%s，新增height/angle输入。",
+                        alignment_max_shift_px)
 
     def forward(
         self, images: torch.Tensor, conditions: Mapping[str, Any],
@@ -163,6 +190,7 @@ class DualHGNetv2_PG(nn.Module):
             conditions: 原模式为批量六条件；联合CLIP模式只读取三个原始
                 类别编号[B]。所有张量与模型同设备，详见条件编码器契约。
                 六条件联合模式接收condition_text的B条原文字符串，不读取GT框/类别。
+                微校准开启时另需规范化height/angle各float32 [B,1]。
 
         Returns:
             [Y3,Y4,Y5]；512×640输入对应[B,256,64,80]、
@@ -183,6 +211,12 @@ class DualHGNetv2_PG(nn.Module):
         if len(features_ir) != 3 or len(features_rgb) != 3:
             raise RuntimeError("双流主干必须各输出S3/S4/S5三个尺度。")
         fused: List[torch.Tensor] = []
+        if self.enable_rgb_ir_alignment:
+            if "height" not in conditions or "angle" not in conditions:
+                raise ValueError("启用RGB→IR微校准必须显式提供height/angle，不补默认值。")
+            geometry, radius_fraction = build_alignment_geometry(
+                conditions["height"], conditions["angle"],
+            )
         for index, (rgb, ir) in enumerate(zip(features_rgb, features_ir)):
             # CM-CME与CG-DMF均使用命名顺序RGB、IR；不要受图像打包顺序影响。
             exchange = self.exchange_layers[index]
@@ -191,6 +225,8 @@ class DualHGNetv2_PG(nn.Module):
             else:
                 # 保留S和Z，避免把“去消息”混成“同时去投影/Norm/FiLM”。
                 s_rgb, s_ir = exchange.rgb_work(rgb), exchange.ir_work(ir)
+                if self.enable_rgb_ir_alignment:
+                    s_rgb = self.rgb_ir_alignments[index](s_rgb, s_ir, geometry, radius_fraction)
                 if self.enable_film:
                     rgb_updated = exchange._apply_film(s_rgb, exchange.rgb_film(condition))
                     ir_updated = exchange._apply_film(s_ir, exchange.ir_film(condition))

@@ -285,3 +285,7 @@ best score：epoch22，mAP=0.537521
 ## joint_clip512_equal_fusion：
 
 best score：epoch27, mAP=0.535263
+
+## joint_clip512_rgb_ir_micro_align.yml:
+
+best score：epoch25，mAP=0.568645

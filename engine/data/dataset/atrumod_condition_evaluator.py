@@ -13,6 +13,7 @@ import torch
 
 from .dota_evaluator import DotaEvaluator
 from .mmeval import eval_rbbox_map
+from .obb_metrics import metrics_from_iou_maps
 from .atrumod_condition_parser import ATRUMODConditionParser
 from ...core import register
 
@@ -28,8 +29,10 @@ class ATRUMODConditionEvaluator(DotaEvaluator):
         output_dir: Optional[str] = None,
         iou_types: Optional[List[str]] = None,
         iou_thrs: Optional[List[float]] = None,
+        report_full_metrics: bool = False,
     ) -> None:
-        super().__init__(dataset=dataset, iou_types=iou_types, iou_thrs=iou_thrs)
+        super().__init__(dataset=dataset, iou_types=iou_types, iou_thrs=iou_thrs,
+                         report_full_metrics=report_full_metrics)
         
         # 自动推导 XML 标注文件夹路径
         if xml_folder is not None:
@@ -131,7 +134,8 @@ class ATRUMODConditionEvaluator(DotaEvaluator):
             dets, gts, show_classes=True
         )
         mean_ap = float(np.mean(list(overall_ap_by_iou.values())))
-        self.stats = {'mAP': mean_ap}
+        self.stats = (metrics_from_iou_maps(overall_ap_by_iou)
+                      if self.report_full_metrics else {'mAP': mean_ap})
         self.eval_results = (
             next(iter(eval_results_by_iou.values()))
             if len(eval_results_by_iou) == 1 else eval_results_by_iou
@@ -180,6 +184,7 @@ class ATRUMODConditionEvaluator(DotaEvaluator):
         with open(save_path, "w", encoding="utf-8") as f:
             json.dump({
                 'overall_mAP': mean_ap,
+                'metrics': self.stats,
                 'conditions': condition_results,
                 'iou_thrs': self.iou_thrs,
                 'overall_mAP_by_iou': overall_ap_by_iou,
