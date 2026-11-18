@@ -1,8 +1,9 @@
-"""Read original paired ATR-UMOD XML without clipping or random augmentation.
+"""Read paired ATR-UMOD XML/GT and apply optional condition-safe augmentation.
 
-YOLO predicts unrestricted box centers, so a center outside the image is not
-removed here. Native small-box loss filtering is audited separately. Evaluation
-always uses the original IR-reference rotated boxes, including border objects.
+Training may use shared geometry-only transforms from augment.py. Validation
+keeps deterministic inputs. YOLO predicts unrestricted box centers, so a center
+outside the image is not removed here. Native small-box loss filtering is
+audited separately. Evaluation always uses the original IR-reference boxes.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ import hashlib
 import math
 import xml.etree.ElementTree as ET
 from collections import Counter
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
@@ -19,6 +21,8 @@ import numpy as np
 import torch
 from PIL import Image
 from torch.utils.data import Dataset
+
+from .augment import PairedAugmentConfig, augment_pair
 
 
 CLASSES = ("car", "suv", "van", "bus", "freight_car", "truck", "motorcycle",
@@ -199,7 +203,8 @@ class ATRUMODYOLODataset(Dataset):
 
     def __init__(
         self, root: str | Path, split: str, input_size: Tuple[int, int] = (512, 640),
-        min_gt_side_px: float = 2.0,
+        min_gt_side_px: float = 2.0, augmentation: PairedAugmentConfig | None = None,
+        seed: int = 0,
     ) -> None:
         """Index and audit the split without decoding all image pixels.
 
@@ -208,12 +213,20 @@ class ATRUMODYOLODataset(Dataset):
             split: train or test.
             input_size: Fixed (H,W), both multiples of 32.
             min_gt_side_px: Explicit native loss threshold, in input pixels.
+            augmentation: Optional condition-safe geometry transforms.
+            seed: Base seed for deterministic random augmentation streams.
         """
         if split not in {"train", "test"}:
             raise ValueError("ATR-UMOD split must be train or test.")
         self.root, self.split = Path(root).resolve(), split
         self.input_size = tuple(input_size)
         self.min_gt_side_px = float(min_gt_side_px)
+        settings = augmentation or PairedAugmentConfig(enabled=False)
+        settings.validate()
+        # Validation/test must remain deterministic even if a caller passes an
+        # enabled object by mistake.
+        self.augmentation = settings if split == "train" else replace(settings, enabled=False)
+        self.rng = np.random.default_rng(seed)
         base = self.root / split
         ir = _files(base / "images_ir", IMAGE_EXTENSIONS)
         rgb = _files(base / "images", IMAGE_EXTENSIONS)
@@ -269,7 +282,9 @@ class ATRUMODYOLODataset(Dataset):
             "reference": "IR", "class_names": list(CLASSES), "counts": dict(totals),
             "annotations_sha256": digest.hexdigest(),
             "sample_ids_sha256": hashlib.sha256("\n".join(self.image_ids).encode()).hexdigest(),
-            "random_augmentation": False, "border_policy": "preserve_original_boxes",
+            "random_augmentation": self.augmentation.enabled,
+            "augmentation": asdict(self.augmentation),
+            "border_policy": "preserve_original_boxes",
             "native_loss_min_side_px": self.min_gt_side_px,
             "nonfinite_degenerate_box_examples": exclusion_examples,
         }
@@ -297,15 +312,25 @@ class ATRUMODYOLODataset(Dataset):
             rgb = np.asarray(image.convert("RGB"), dtype=np.uint8).copy()
         if ir.shape[:2] != self.input_size or rgb.shape != ir.shape:
             raise ValueError(f"{self.image_ids[index]}: image changed after indexing.")
+        if self.augmentation.enabled:
+            ir, rgb, boxes, keep_mask, augmentation_audit = augment_pair(
+                ir, rgb, record["boxes"].copy(), self.augmentation, self.rng
+            )
+            native = normalized_native_boxes(boxes, self.input_size)
+            classes = record["classes"][keep_mask]
+        else:
+            native = record["native"].copy()
+            classes = record["classes"]
+            augmentation_audit = {"enabled": False, "dropped_boxes": 0}
         channels = np.concatenate((ir, rgb), axis=2).transpose(2, 0, 1).copy()
         return {
             "img": torch.from_numpy(channels),
-            "cls": torch.from_numpy(record["classes"].astype(np.float32)[:, None]),
-            "bboxes": torch.from_numpy(record["native"].copy()),
+            "cls": torch.from_numpy(classes.astype(np.float32)[:, None]),
+            "bboxes": torch.from_numpy(native),
             "conditions": {key: value.clone() for key, value in record["conditions"].items()},
             "ori_shape": self.input_size, "ratio_pad": ((1.0, 1.0), (0.0, 0.0)),
             "im_file": self.im_files[index], "rgb_file": self.rgb_files[index],
-            "image_id": self.image_ids[index],
+            "image_id": self.image_ids[index], "augmentation": augmentation_audit,
         }
 
     def get_ann_info(self, index: int) -> Dict[str, np.ndarray]:
@@ -346,7 +371,7 @@ class ATRUMODYOLODataset(Dataset):
                 for key in samples[0]["conditions"]
             },
         }
-        for key in ("ori_shape", "ratio_pad", "im_file", "rgb_file", "image_id"):
+        for key in ("ori_shape", "ratio_pad", "im_file", "rgb_file", "image_id", "augmentation"):
             result[key] = [sample[key] for sample in samples]
         return result
 

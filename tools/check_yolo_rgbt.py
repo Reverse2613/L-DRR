@@ -422,6 +422,8 @@ def check_models(
         "native_trainer_optimizer_warmup_metadata_validator": True,
         "native_checkpoint_save_resume_final_eval_verified": True,
         "optimizer": optimizer_type,
+        "training_augmentation": dataclasses.asdict(config.augmentation()),
+        "validation_augmentation_disabled": True,
         "optimizer_recipe": {
             "lr_pretrained": config.lr_pretrained,
             "lr_new": config.lr_new,
@@ -473,8 +475,14 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             or not config.dynamic_fusion or not config.score_condition or config.condition_mode != "real"
         ):
             raise ValueError("Run the integrated check with atrumod_yolo11s_condition_align.yml.")
-        train = ATRUMODYOLODataset(config.data_root, "train", config.input_size, config.min_gt_side_px)
-        test = ATRUMODYOLODataset(config.data_root, "test", config.input_size, config.min_gt_side_px)
+        train = ATRUMODYOLODataset(
+            config.data_root, "train", config.input_size, config.min_gt_side_px,
+            config.augmentation(), config.seed,
+        )
+        test = ATRUMODYOLODataset(
+            config.data_root, "test", config.input_size, config.min_gt_side_px,
+            config.augmentation(), config.seed,
+        )
         report["datasets"] = {"train": train.audit, "test": test.audit}
         if not args.audit_only:
             device = torch.device(args.device)

@@ -10,6 +10,7 @@ from typing import Any, Dict, Mapping, Tuple
 
 import yaml
 
+from .augment import PairedAugmentConfig
 from .runtime import REPO_ROOT
 
 
@@ -132,6 +133,17 @@ class ExperimentConfig:
     nesterov: bool = True
     weight_decay: float = 0.0005
     warmup_iterations: int = 4500
+    augment: bool = False
+    aug_hflip: float = 0.5
+    aug_vflip: float = 0.5
+    aug_rotate_prob: float = 0.5
+    aug_rotate_deg: float = 10.0
+    aug_scale_prob: float = 0.5
+    aug_scale_min: float = 0.9
+    aug_scale_max: float = 1.1
+    aug_translate_prob: float = 0.5
+    aug_translate_frac: float = 0.05
+    aug_fill_value: int = 0
     clip_norm: float = 10.0
     amp: bool = True
     min_gt_side_px: float = 2.0
@@ -159,8 +171,28 @@ class ExperimentConfig:
         result.update(model="yolo11s-obb", fusion_indices=(4, 6, 10), reference="IR")
         return result
 
+    def augmentation(self) -> PairedAugmentConfig:
+        """Return the validated condition-safe train augmentation settings.
+
+        Returns:
+            Geometry-only paired augmentation settings. Validation split data
+            is forced to disable these settings by the dataset.
+
+        Raises:
+            ValueError: A probability or geometric bound is invalid.
+        """
+        result = PairedAugmentConfig(
+            enabled=self.augment, hflip=self.aug_hflip, vflip=self.aug_vflip,
+            rotate_prob=self.aug_rotate_prob, rotate_deg=self.aug_rotate_deg,
+            scale_prob=self.aug_scale_prob, scale_min=self.aug_scale_min,
+            scale_max=self.aug_scale_max, translate_prob=self.aug_translate_prob,
+            translate_frac=self.aug_translate_frac, fill_value=self.aug_fill_value,
+        )
+        result.validate()
+        return result
+
     def native_args(self, device: str = "0") -> Dict[str, Any]:
-        """Build native trainer arguments with every random augmentation off.
+        """Build native trainer arguments; custom data owns safe augmentation.
 
         Args:
             device: Single CUDA device or CPU, e.g. "0" or "cpu".
@@ -185,9 +217,15 @@ class ExperimentConfig:
             "plots": False, "verbose": False, "cache": False,
             "rect": False, "multi_scale": False, "close_mosaic": 0,
             "mosaic": 0.0, "mixup": 0.0, "copy_paste": 0.0,
-            "degrees": 0.0, "translate": 0.0, "scale": 0.0, "shear": 0.0,
-            "perspective": 0.0, "flipud": 0.0, "fliplr": 0.0,
+            "degrees": self.aug_rotate_deg if self.augment else 0.0,
+            "translate": self.aug_translate_frac if self.augment else 0.0,
+            "scale": max(self.aug_scale_max - 1.0, 1.0 - self.aug_scale_min)
+                     if self.augment else 0.0,
+            "shear": 0.0, "perspective": 0.0,
+            "flipud": self.aug_vflip if self.augment else 0.0,
+            "fliplr": self.aug_hflip if self.augment else 0.0,
             "hsv_h": 0.0, "hsv_s": 0.0, "hsv_v": 0.0,
+            "erasing": 0.0, "auto_augment": "none", "crop_fraction": 1.0,
             "augment": False, "save_hybrid": False, "save_json": False,
             "conf": self.conf, "iou": self.nms_iou, "max_det": self.max_det,
             "box": 7.5, "cls": 0.5, "dfl": 1.5,
@@ -237,15 +275,16 @@ def load_config(path: str | Path, **overrides: Any) -> ExperimentConfig:
     if not isinstance(config.optimizer, str) or config.optimizer.lower() not in optimizer_names:
         raise ValueError("optimizer must be SGD or AdamW.")
     object.__setattr__(config, "optimizer", optimizer_names[config.optimizer.lower()])
-    for name in ("enable_film", "dynamic_fusion", "score_condition", "amp", "nesterov"):
+    for name in ("enable_film", "dynamic_fusion", "score_condition", "amp", "nesterov", "augment"):
         if type(getattr(config, name)) is not bool:
             raise ValueError(f"{name} must be a boolean.")
     for name in ("epochs", "batch", "val_batch", "max_det"):
         if type(getattr(config, name)) is not int or getattr(config, name) <= 0:
             raise ValueError(f"{name} must be a positive integer.")
-    for name in ("workers", "seed", "warmup_iterations"):
+    for name in ("workers", "seed", "warmup_iterations", "aug_fill_value"):
         if type(getattr(config, name)) is not int or getattr(config, name) < 0:
             raise ValueError(f"{name} must be a nonnegative integer.")
+    config.augmentation()
     for name in ("lr_new", "lr_pretrained", "weight_decay", "clip_norm", "max_shift_px", "min_gt_side_px"):
         value = getattr(config, name)
         if isinstance(value, bool) or not math.isfinite(value) or value <= 0:

@@ -48,9 +48,28 @@ class PairedOBBTrainer(OBBTrainer):
         if resume is not None:
             checkpoint_model = load_local_checkpoint(required, config)
             current = config.as_dict()
+            saved = checkpoint_model.experiment_spec
             excluded = {"source", "pretrained"}
+            # Checkpoints made before this augmentation release lack these
+            # fields. They are compatible only when the current run exactly
+            # matches the disabled/default values; a real enhancement change
+            # still rejects resume.
+            augmentation_fields = (
+                "augment", "aug_hflip", "aug_vflip", "aug_rotate_prob", "aug_rotate_deg",
+                "aug_scale_prob", "aug_scale_min", "aug_scale_max", "aug_translate_prob",
+                "aug_translate_frac", "aug_fill_value",
+            )
+            legacy_missing = [key for key in augmentation_fields if key not in saved]
+            incompatible_legacy = [
+                key for key in legacy_missing
+                if current[key] != ExperimentConfig.__dataclass_fields__[key].default
+            ]
+            if incompatible_legacy:
+                raise ValueError(f"Resume adds non-default augmentation fields: {incompatible_legacy}.")
+            if legacy_missing:
+                LOGGER.warning(f"Legacy checkpoint lacks disabled augmentation metadata: {legacy_missing}.")
             changed = [key for key, value in current.items()
-                       if key not in excluded and checkpoint_model.experiment_spec.get(key) != value]
+                       if key not in excluded and key not in legacy_missing and saved.get(key) != value]
             if changed:
                 raise ValueError(f"Resume changes the experiment: {changed}; start an independent run instead.")
         args = config.native_args(str(device))
@@ -123,7 +142,8 @@ class PairedOBBTrainer(OBBTrainer):
         if Path(dataset_path).resolve() != expected.resolve():
             raise ValueError("Native dataset path does not match the declared split.")
         dataset = ATRUMODYOLODataset(
-            self.experiment.data_root, split, self.experiment.input_size, self.experiment.min_gt_side_px
+            self.experiment.data_root, split, self.experiment.input_size,
+            self.experiment.min_gt_side_px, self.experiment.augmentation(), self.experiment.seed,
         )
         previous = self.model.data_audits.get(mode)
         if previous is not None:

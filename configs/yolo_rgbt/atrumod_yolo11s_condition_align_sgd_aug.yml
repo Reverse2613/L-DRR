@@ -1,0 +1,3 @@
+__include__: [./atrumod_yolo11s_sgd_aug_base.yml]
+# Full geometry-aligned carrier with SGD and paired augmentation.
+output_dir: ./outputs/yolo11s_rgbt_atrumod_condition_align_sgd_aug_seed0

@@ -1,0 +1,4 @@
+__include__: [./atrumod_yolo11s_sgd_aug_base.yml]
+# SGD augmented carrier with FiLM bypassed.
+output_dir: ./outputs/yolo11s_rgbt_atrumod_no_film_sgd_aug_seed0
+enable_film: false
