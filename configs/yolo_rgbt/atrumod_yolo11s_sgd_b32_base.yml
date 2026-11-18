@@ -1,0 +1,6 @@
+__include__: [./atrumod_yolo11s_sgd_base.yml]
+# Large-batch control: warmup is fixed at 3 epochs instead of 4500 steps.
+output_dir: ./outputs/yolo11s_rgbt_atrumod_condition_align_sgd_b32_seed0
+batch: 32
+val_batch: 32
+warmup_epochs: 3.0

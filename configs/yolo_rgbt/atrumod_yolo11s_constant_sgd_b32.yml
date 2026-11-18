@@ -1,0 +1,4 @@
+__include__: [./atrumod_yolo11s_sgd_b32_base.yml]
+# Batch32 carrier with constant environment lookup.
+output_dir: ./outputs/yolo11s_rgbt_atrumod_constant_sgd_b32_seed0
+condition_mode: constant

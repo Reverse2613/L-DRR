@@ -133,6 +133,7 @@ class ExperimentConfig:
     nesterov: bool = True
     weight_decay: float = 0.0005
     warmup_iterations: int = 4500
+    warmup_epochs: float | None = None
     augment: bool = False
     aug_hflip: float = 0.5
     aug_vflip: float = 0.5
@@ -210,7 +211,8 @@ class ExperimentConfig:
             "optimizer": self.optimizer, "lr0": self.lr_new,
             "lrf": self.lr_final_ratio, "momentum": self.momentum,
             "weight_decay": self.weight_decay, "cos_lr": True,
-            "warmup_epochs": 1.0, "warmup_bias_lr": 0.0,
+            "warmup_epochs": self.warmup_epochs if self.warmup_epochs is not None else 1.0,
+            "warmup_bias_lr": 0.0,
             "warmup_momentum": self.warmup_momentum,
             "amp": self.amp, "deterministic": True, "freeze": 0,
             "patience": 0, "save": True, "save_period": 60, "val": True,
@@ -284,6 +286,11 @@ def load_config(path: str | Path, **overrides: Any) -> ExperimentConfig:
     for name in ("workers", "seed", "warmup_iterations", "aug_fill_value"):
         if type(getattr(config, name)) is not int or getattr(config, name) < 0:
             raise ValueError(f"{name} must be a nonnegative integer.")
+    if config.warmup_epochs is not None:
+        if (isinstance(config.warmup_epochs, bool) or not isinstance(config.warmup_epochs, (int, float))
+                or not math.isfinite(config.warmup_epochs) or config.warmup_epochs <= 0):
+            raise ValueError("warmup_epochs must be positive and finite when provided.")
+        object.__setattr__(config, "warmup_epochs", float(config.warmup_epochs))
     config.augmentation()
     for name in ("lr_new", "lr_pretrained", "weight_decay", "clip_norm", "max_shift_px", "min_gt_side_px"):
         value = getattr(config, name)

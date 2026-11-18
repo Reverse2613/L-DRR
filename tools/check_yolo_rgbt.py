@@ -165,7 +165,23 @@ def check_math(device: torch.device, config: Any) -> Dict[str, Any]:
     torch.testing.assert_close(block(rgb, ir, vector, geometry, radius), original(sr, si, vector), rtol=0, atol=0)
     wr, wi = block.compute_weights(sr, si, vector)
     assert torch.all(wr == 0.5) and torch.all(wi == 0.5)
+
+    # The equal-fusion control must bypass both scorers and equal-average the
+    # same post-work/modulation features, not approximate a different graph.
+    equal = ConditionFusion(32, 8, 12.0, alignment="off", dynamic_fusion=False).to(device)
+    equal.load_state_dict(block.state_dict(), strict=True)
+    calls = {"count": 0}
+    handles = [module.register_forward_hook(
+        lambda _module, _inputs, _output: calls.__setitem__("count", calls["count"] + 1)
+    ) for module in (equal.rgb_score, equal.ir_score)]
+    equal_output = equal(rgb, ir, vector, geometry, radius)
+    for handle in handles:
+        handle.remove()
+    expected_equal = equal.out_projection(0.5 * (sr + si))
+    torch.testing.assert_close(equal_output, expected_equal, rtol=0, atol=0)
+    assert calls["count"] == 0
     return {"old_geometry_descriptor_exact": True, "old_CGDMF_path_exact_FP32": True,
+            "equal_fusion_exact_and_scorers_bypassed": True,
             "FP32_FP16_zero_shift_exact_identity": True, "input_pixel_bounds_and_direction": True,
             "IR_unmodified": True, "first_offset_head_gradient": True,
             "zero_hidden_first_gradient_expected": True, "raw_CLIP_preserved_under_half": True,
@@ -369,7 +385,9 @@ def check_models(
     trainer = PairedOBBTrainer(full_config, str(device.index or 0))
     trainer._setup_train(world_size=1)
     assert trainer.accumulate == 1 and trainer.amp
-    assert round(trainer.args.warmup_epochs * len(trainer.train_loader)) == config.warmup_iterations
+    expected_warmup = (max(round(config.warmup_epochs * len(trainer.train_loader)), 100)
+                       if config.warmup_epochs is not None else config.warmup_iterations)
+    assert round(trainer.args.warmup_epochs * len(trainer.train_loader)) == expected_warmup
     names = [name for group in trainer.optimizer.param_groups for name in group["param_names"]]
     expected_names = [name for name, parameter in trainer.model.named_parameters() if parameter.requires_grad]
     assert len(names) == len(set(names)) and set(names) == set(expected_names)
@@ -431,7 +449,9 @@ def check_models(
             "momentum": config.momentum if optimizer_type == "SGD" else None,
             "warmup_momentum": config.warmup_momentum if optimizer_type == "SGD" else None,
             "nesterov": config.nesterov if optimizer_type == "SGD" else None,
-            "warmup_iterations": config.warmup_iterations,
+            "warmup_iterations_configured": config.warmup_iterations,
+            "warmup_epochs_configured": config.warmup_epochs,
+            "warmup_iterations_effective": expected_warmup,
             "weight_decay": config.weight_decay,
             "groups": len(trainer.optimizer.param_groups),
         },

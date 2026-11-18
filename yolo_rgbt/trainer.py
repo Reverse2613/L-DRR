@@ -54,20 +54,21 @@ class PairedOBBTrainer(OBBTrainer):
             # fields. They are compatible only when the current run exactly
             # matches the disabled/default values; a real enhancement change
             # still rejects resume.
-            augmentation_fields = (
+            legacy_config_fields = (
+                "warmup_epochs",
                 "augment", "aug_hflip", "aug_vflip", "aug_rotate_prob", "aug_rotate_deg",
                 "aug_scale_prob", "aug_scale_min", "aug_scale_max", "aug_translate_prob",
                 "aug_translate_frac", "aug_fill_value",
             )
-            legacy_missing = [key for key in augmentation_fields if key not in saved]
+            legacy_missing = [key for key in legacy_config_fields if key not in saved]
             incompatible_legacy = [
                 key for key in legacy_missing
                 if current[key] != ExperimentConfig.__dataclass_fields__[key].default
             ]
             if incompatible_legacy:
-                raise ValueError(f"Resume adds non-default augmentation fields: {incompatible_legacy}.")
+                raise ValueError(f"Resume uses non-default values for legacy fields: {incompatible_legacy}.")
             if legacy_missing:
-                LOGGER.warning(f"Legacy checkpoint lacks disabled augmentation metadata: {legacy_missing}.")
+                LOGGER.warning(f"Legacy checkpoint lacks backward-compatible fields: {legacy_missing}.")
             changed = [key for key, value in current.items()
                        if key not in excluded and key not in legacy_missing and saved.get(key) != value]
             if changed:
@@ -183,6 +184,17 @@ class PairedOBBTrainer(OBBTrainer):
             self.experiment, self.test_loader, self.save_dir, copy(self.args), self.callbacks
         )
 
+    def _warmup_batches(self) -> int:
+        """Resolve batch-independent warmup epochs or historical step count.
+
+        Returns:
+            Effective warmup optimizer iterations. Ultralytics also enforces a
+            minimum of 100 iterations in its training loop.
+        """
+        if self.experiment.warmup_epochs is None:
+            return self.experiment.warmup_iterations
+        return max(round(self.experiment.warmup_epochs * len(self.train_loader)), 100)
+
     def build_optimizer(
         self, model: nn.Module, name: str = "SGD", lr: float = 0.01,
         momentum: float = 0.937, decay: float = 0.0005, iterations: int = 100000,
@@ -226,7 +238,9 @@ class PairedOBBTrainer(OBBTrainer):
                                     if self.experiment.optimizer == "SGD" else None),
                 "nesterov": self.experiment.nesterov if self.experiment.optimizer == "SGD" else None,
                 "weight_decay": self.experiment.weight_decay,
-                "warmup_iterations": self.experiment.warmup_iterations,
+                "warmup_iterations_configured": self.experiment.warmup_iterations,
+                "warmup_epochs_configured": self.experiment.warmup_epochs,
+                "warmup_iterations_effective": self._warmup_batches(),
             },
             "groups": [
                 {key: value for key, value in group.items() if key != "params"}
@@ -255,11 +269,13 @@ class PairedOBBTrainer(OBBTrainer):
             self.args.amp = requested_amp
         self.amp = bool(requested_amp and self.device.type == "cuda")
         self.scaler = torch.amp.GradScaler("cuda", enabled=self.amp)
-        self.args.warmup_epochs = self.experiment.warmup_iterations / len(self.train_loader)
+        warmup_batches = self._warmup_batches()
+        self.args.warmup_epochs = warmup_batches / len(self.train_loader)
         LOGGER.info(
             f"Actual paired input={self.experiment.input_size}; effective batch={self.experiment.batch}; "
-            f"optimizer={self.experiment.optimizer}; warmup={self.experiment.warmup_iterations} iterations; "
-            f"AMP={self.amp}. No auxiliary AMP-check weights downloaded."
+            f"optimizer={self.experiment.optimizer}; warmup={warmup_batches} iterations "
+            f"({self.args.warmup_epochs:.3f} epochs); AMP={self.amp}. "
+            "No auxiliary AMP-check weights downloaded."
         )
 
     def optimizer_step(self) -> None:

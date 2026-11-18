@@ -27,6 +27,7 @@ IR/RGB [B,3,512,640] → 两个 YOLO11s 骨干 → indices 4/6/10
 | visual_align | 无遥测描述符，视觉偏移使用全局12像素界限 |
 | *_sgd | 使用独立SGD配方，输出到`_sgd_seed0` |
 | *_sgd_aug | SGD＋配对几何增强，输出到`_sgd_aug_seed0` |
+| *_sgd_b32 | batch32＋3轮warmup，避免4500步被放大成12轮 |
 
 visual_align目前用于ATR消融；本轮没有实现DroneVehicle/VLM数据接入。
 
@@ -40,13 +41,13 @@ visual_align目前用于ATR消融；本轮没有实现DroneVehicle/VLM数据接�
 
 历史AdamW配方（可复现首轮）：36轮、batch8、无增强、AMP/EMA；预训练LR=1e-4、新参数LR=1e-3，矩阵WD=1e-4，warmup500、cosine至0.1倍。
 
-新实验默认使用`*_sgd.yml`：36轮、batch8、无增强、AMP/EMA；SGD＋Nesterov momentum0.937，预训练LR=1e-3、新参数LR=1e-2，矩阵WD=5e-4，warmup4500迭代（约3轮）、cosine至0.01倍。Norm/bias/embedding/标量不做WD，实际batch8、clip10。两套优化器使用独立输出目录，不能从AdamW的`last.pt`续训后声称SGD对照。
+新实验默认使用`*_sgd.yml`：36轮、batch8、无增强、AMP/EMA；SGD＋Nesterov momentum0.937，预训练LR=1e-3、新参数LR=1e-2，矩阵WD=5e-4，warmup4500迭代（约3轮）、cosine至0.01倍。Norm/bias/embedding/标量不做WD，实际batch8、clip10。两套优化器使用独立输出目录，不能从AdamW的`last.pt`续训后声称SGD对照。改batch时优先用`warmup_epochs`；`*_sgd_b32`固定3轮warmup，避免batch32每轮371步时4500步等于12.13轮。
 
 训练通过 [train_yolo_rgbt.py](../tools/train_yolo_rgbt.py)，SGD命令使用`configs/yolo_rgbt/atrumod_yolo11s_condition_align_sgd.yml`等独立配置；每轮按**原生ProbIoU＋101点积分AP50**选best.pt，CSV的epoch从1开始。之后运行 [eval_yolo_rgbt.py](../tools/eval_yolo_rgbt.py)，导出未裁剪原图像素/radian预测，并调用原仓库不改动的几何IoU/VOC07评测。AP50_95是VOC07十阈值均值；两套AP不能混列。predictions.json可直接复评，省去再次推理。
 
 输出含experiment.json、预训练覆盖、数据审计、参数组、results.csv与best.pt/last.pt。已有训练目录拒绝复用；resume只用于同实验中断续跑。原型沿用已经参与开发的官方test，不称新未接触测试集。
 
-[check_yolo_rgbt.py](../tools/check_yolo_rgbt.py)限540秒，验证真实批次前后向与native trainer接口，检测优化步为0。缺少本地预训练时只验未训练结构，不能当真实权重/AP验收。安装、手动下载、检查和训练命令见 [flow.md](../plan/flow.md)。
+[check_yolo_rgbt.py](../tools/check_yolo_rgbt.py)限540秒，验证真实批次前后向与native trainer接口，检测优化步为0。缺少本地预训练时只验未训练结构，不能当真实权重/AP验收。[analyze_yolo_fusion_weights.py](../tools/analyze_yolo_fusion_weights.py)从动态融合checkpoint读取三尺度RGB/IR权重，输出逐图CSV、条件分组统计和相对0.5的偏差；平均绝对偏差近0、归一化熵近1表示评分器趋近等权。安装、手动下载、检查和训练命令见 [flow.md](../plan/flow.md)。
 
 基础来源：[Ultralytics YOLO11](https://docs.ultralytics.com/models/yolo11/)、[CLIP](https://proceedings.mlr.press/v139/radford21a.html)、[FiLM](https://arxiv.org/abs/1709.07871)、[Spatial Transformer](https://arxiv.org/abs/1506.02025)、[C2Former](https://arxiv.org/html/2306.16175v3)。native接口/损失适配保留Ultralytics的AGPL-3.0声明；这些基础算子不分别主张首创。
 

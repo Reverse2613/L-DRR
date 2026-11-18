@@ -1,0 +1,4 @@
+__include__: [./atrumod_yolo11s_sgd_b32_base.yml]
+# CLIP512 + FiLM + dynamic scoring at batch32.
+output_dir: ./outputs/yolo11s_rgbt_atrumod_condition_sgd_b32_seed0
+alignment: "off"
