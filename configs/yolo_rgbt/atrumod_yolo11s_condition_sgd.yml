@@ -1,0 +1,4 @@
+__include__: [./atrumod_yolo11s_sgd_base.yml]
+# Environment CLIP512 + FiLM + dynamic scoring under SGD.
+output_dir: ./outputs/yolo11s_rgbt_atrumod_condition_sgd_seed0
+alignment: "off"

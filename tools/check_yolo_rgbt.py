@@ -373,9 +373,13 @@ def check_models(
     names = [name for group in trainer.optimizer.param_groups for name in group["param_names"]]
     expected_names = [name for name, parameter in trainer.model.named_parameters() if parameter.requires_grad]
     assert len(names) == len(set(names)) and set(names) == set(expected_names)
+    optimizer_type = type(trainer.optimizer).__name__
+    assert optimizer_type == config.optimizer
     for group in trainer.optimizer.param_groups:
         assert group["weight_decay"] == (0 if group["kind"] == "no_decay" else config.weight_decay)
         assert group["lr"] == (config.lr_pretrained if group["role"] == "pretrained" else config.lr_new)
+        if optimizer_type == "SGD":
+            assert group["momentum"] == config.momentum and group["nesterov"] is config.nesterov
     assert not trainer.optimizer.state  # no optimizer.step has occurred
     mini = DataLoader(Subset(trainer.test_loader.dataset, [0, 1]), batch_size=1,
                       collate_fn=dataset.collate_fn, num_workers=0)
@@ -417,6 +421,18 @@ def check_models(
         "startup_gradient_L1": startup, "CLIP_EMA_checkpoint_FP32_exact": True,
         "native_trainer_optimizer_warmup_metadata_validator": True,
         "native_checkpoint_save_resume_final_eval_verified": True,
+        "optimizer": optimizer_type,
+        "optimizer_recipe": {
+            "lr_pretrained": config.lr_pretrained,
+            "lr_new": config.lr_new,
+            "lr_final_ratio": config.lr_final_ratio,
+            "momentum": config.momentum if optimizer_type == "SGD" else None,
+            "warmup_momentum": config.warmup_momentum if optimizer_type == "SGD" else None,
+            "nesterov": config.nesterov if optimizer_type == "SGD" else None,
+            "warmup_iterations": config.warmup_iterations,
+            "weight_decay": config.weight_decay,
+            "groups": len(trainer.optimizer.param_groups),
+        },
         "mini_validation_images": 2, "optimizer_steps": 0,
     }
 

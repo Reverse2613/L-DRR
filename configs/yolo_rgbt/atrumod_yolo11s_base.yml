@@ -27,13 +27,17 @@ workers: 4
 seed: 0
 amp: true
 
-# Native OBB objective: ProbIoU/BCE/DFL; no condition/gate auxiliary loss.
-# Loaded detector tensors LR=1e-4; new fusion/class-output tensors LR=1e-3.
-# Bias/norm/embedding/scalar decay=0; matrix decay=1e-4; actual batch=nbs=8.
+# Historical AdamW carrier for reproducing the first YOLO run.
+# New SGD experiments include atrumod_yolo11s_sgd_base.yml instead.
+optimizer: AdamW
 lr_pretrained: 0.0001
 lr_new: 0.001
+lr_final_ratio: 0.1
 weight_decay: 0.0001
 warmup_iterations: 500
+momentum: 0.937
+warmup_momentum: 0.9
+nesterov: false
 clip_norm: 10.0
 min_gt_side_px: 2.0
 conf: 0.001

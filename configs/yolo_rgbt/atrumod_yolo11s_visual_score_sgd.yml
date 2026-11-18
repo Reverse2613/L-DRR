@@ -1,0 +1,4 @@
+__include__: [./atrumod_yolo11s_sgd_base.yml]
+# SGD carrier without direct condition score terms.
+output_dir: ./outputs/yolo11s_rgbt_atrumod_visual_score_sgd_seed0
+score_condition: false

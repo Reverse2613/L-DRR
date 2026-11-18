@@ -1,4 +1,4 @@
-"""Module-aware AdamW grouping for transferred weights and newly added layers."""
+"""Module-aware optimizer grouping for transferred and newly added weights."""
 
 from __future__ import annotations
 
@@ -10,16 +10,26 @@ from torch import nn
 from .config import ExperimentConfig
 
 
-def build_optimizer(model: nn.Module, config: ExperimentConfig) -> torch.optim.AdamW:
-    """Exclude bias/norm/scalar parameters from decay and separate learning rates.
+def build_optimizer(model: nn.Module, config: ExperimentConfig) -> torch.optim.Optimizer:
+    """Build SGD or AdamW groups with explicit learning-rate and decay rules.
+
+    The four groups are the Cartesian product of parameter provenance
+    (``pretrained`` versus ``new``) and decay eligibility (``matrix`` versus
+    ``no_decay``). The provenance split lets newly initialized fusion/class
+    layers learn faster, while the decay split keeps bias, normalization,
+    embedding, and scalar parameters out of weight decay.
 
     Args:
-        model: Paired model with explicit loaded_parameter_names.
-        config: Pretrained/new learning rates and matrix weight decay.
+        model: Paired model exposing ``loaded_parameter_names``.
+        config: Validated optimizer, learning-rate, momentum, and decay settings.
 
     Returns:
-        AdamW optimizer covering every trainable parameter exactly once.
-        Each group records role and param_names for reproducible auditing.
+        Optimizer covering every trainable parameter exactly once. Each group
+        also carries ``role`` and ``param_names`` for the JSON audit log.
+
+    Raises:
+        ValueError: A parameter is duplicated/missing, or the optimizer is
+            unsupported.
     """
     loaded = set(model.loaded_parameter_names)
     normalizations = (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d, nn.SyncBatchNorm,
@@ -52,4 +62,15 @@ def build_optimizer(model: nn.Module, config: ExperimentConfig) -> torch.optim.A
     if seen != expected:
         raise ValueError("Optimizer coverage differs from trainable model parameters.")
     groups: List[Dict[str, Any]] = [buckets[key] for key in sorted(buckets)]
-    return torch.optim.AdamW(groups, betas=(0.9, 0.999))
+
+    if config.optimizer == "SGD":
+        # Nesterov SGD is YOLO's native long-schedule choice. Momentum is
+        # ramped by the native trainer from warmup_momentum to momentum.
+        return torch.optim.SGD(
+            groups, momentum=config.momentum, dampening=0.0, nesterov=config.nesterov
+        )
+    if config.optimizer == "AdamW":
+        # Retained only for reproducing historical YOLO runs. AdamW ignores
+        # ``momentum`` and uses beta_1/beta_2 below.
+        return torch.optim.AdamW(groups, betas=(0.9, 0.999))
+    raise ValueError(f"Unsupported optimizer: {config.optimizer}")

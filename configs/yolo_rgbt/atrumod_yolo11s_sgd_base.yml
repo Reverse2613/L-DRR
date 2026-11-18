@@ -1,0 +1,12 @@
+__include__: [./atrumod_yolo11s_base.yml]
+# YOLO-native SGD recipe for new experiments; do not resume an AdamW run.
+output_dir: ./outputs/yolo11s_rgbt_atrumod_condition_align_sgd_seed0
+optimizer: SGD
+lr_pretrained: 0.001
+lr_new: 0.01
+lr_final_ratio: 0.01
+momentum: 0.937
+warmup_momentum: 0.8
+nesterov: true
+weight_decay: 0.0005
+warmup_iterations: 4500

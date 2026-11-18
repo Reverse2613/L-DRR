@@ -1,0 +1,5 @@
+__include__: [./atrumod_yolo11s_sgd_base.yml]
+# Simple dual-stream SGD baseline.
+output_dir: ./outputs/yolo11s_rgbt_atrumod_concat_sgd_seed0
+variant: concat
+alignment: "off"

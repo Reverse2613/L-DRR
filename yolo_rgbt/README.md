@@ -34,9 +34,11 @@ visual_align目前用于ATR消融；本轮没有实现DroneVehicle/VLM数据接�
 
 770×512 CLIP缓存核验模板、原始ID、来源与SHA256。它不进入EMA的state_dict更新；整体模型保存仍包含缓存，half/float保持FP32原值。预训练加载显式复制双骨干与兼容neck/head，只有新融合和不同类别输出卷积可以不匹配；错误模型/大小/不明缺键报错。
 
-原型配方：36轮、训练/验证batch8、无增强、AMP/EMA、AdamW。预训练参数LR=1e-4，新参数LR=1e-3；矩阵WD=1e-4，Norm/bias/embedding/标量WD=0；warmup500迭代＋cosine至0.1倍，实际有效batch8，clip10。绕过原生AMP辅助检测器下载，改用本地检查；完整训练仍由你执行。
+历史AdamW配方（可复现首轮）：36轮、batch8、无增强、AMP/EMA；预训练LR=1e-4、新参数LR=1e-3，矩阵WD=1e-4，warmup500、cosine至0.1倍。
 
-训练通过 [train_yolo_rgbt.py](../tools/train_yolo_rgbt.py)，每轮按**原生ProbIoU＋101点积分AP50**选best.pt；CSV的epoch从1开始。之后运行 [eval_yolo_rgbt.py](../tools/eval_yolo_rgbt.py)，导出未裁剪原图像素/radian预测，并调用原仓库不改动的几何IoU/VOC07评测。AP50_95是VOC07十阈值均值；两套AP不能混列。predictions.json可直接复评，省去再次推理。
+新实验默认使用`*_sgd.yml`：36轮、batch8、无增强、AMP/EMA；SGD＋Nesterov momentum0.937，预训练LR=1e-3、新参数LR=1e-2，矩阵WD=5e-4，warmup4500迭代（约3轮）、cosine至0.01倍。Norm/bias/embedding/标量不做WD，实际batch8、clip10。两套优化器使用独立输出目录，不能从AdamW的`last.pt`续训后声称SGD对照。
+
+训练通过 [train_yolo_rgbt.py](../tools/train_yolo_rgbt.py)，SGD命令使用`configs/yolo_rgbt/atrumod_yolo11s_condition_align_sgd.yml`等独立配置；每轮按**原生ProbIoU＋101点积分AP50**选best.pt，CSV的epoch从1开始。之后运行 [eval_yolo_rgbt.py](../tools/eval_yolo_rgbt.py)，导出未裁剪原图像素/radian预测，并调用原仓库不改动的几何IoU/VOC07评测。AP50_95是VOC07十阈值均值；两套AP不能混列。predictions.json可直接复评，省去再次推理。
 
 输出含experiment.json、预训练覆盖、数据审计、参数组、results.csv与best.pt/last.pt。已有训练目录拒绝复用；resume只用于同实验中断续跑。原型沿用已经参与开发的官方test，不称新未接触测试集。
 

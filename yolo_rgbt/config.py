@@ -123,10 +123,15 @@ class ExperimentConfig:
     val_batch: int = 8
     workers: int = 4
     seed: int = 0
-    lr_new: float = 0.001
-    lr_pretrained: float = 0.0001
-    weight_decay: float = 0.0001
-    warmup_iterations: int = 500
+    optimizer: str = "SGD"
+    lr_new: float = 0.01
+    lr_pretrained: float = 0.001
+    lr_final_ratio: float = 0.01
+    momentum: float = 0.937
+    warmup_momentum: float = 0.8
+    nesterov: bool = True
+    weight_decay: float = 0.0005
+    warmup_iterations: int = 4500
     clip_norm: float = 10.0
     amp: bool = True
     min_gt_side_px: float = 2.0
@@ -170,9 +175,11 @@ class ExperimentConfig:
             "exist_ok": False, "task": "obb", "device": device,
             "epochs": self.epochs, "batch": self.batch, "nbs": self.batch,
             "imgsz": max(self.input_size), "workers": self.workers, "seed": self.seed,
-            "optimizer": "AdamW", "lr0": self.lr_new, "lrf": 0.1,
+            "optimizer": self.optimizer, "lr0": self.lr_new,
+            "lrf": self.lr_final_ratio, "momentum": self.momentum,
             "weight_decay": self.weight_decay, "cos_lr": True,
-            "warmup_epochs": 1.0, "warmup_bias_lr": 0.0, "warmup_momentum": 0.9,
+            "warmup_epochs": 1.0, "warmup_bias_lr": 0.0,
+            "warmup_momentum": self.warmup_momentum,
             "amp": self.amp, "deterministic": True, "freeze": 0,
             "patience": 0, "save": True, "save_period": 60, "val": True,
             "plots": False, "verbose": False, "cache": False,
@@ -226,7 +233,11 @@ def load_config(path: str | Path, **overrides: Any) -> ExperimentConfig:
         raise ValueError("The simple concat baseline must explicitly disable alignment.")
     if config.validation_split not in {"train", "test"}:
         raise ValueError("This ATR-UMOD prototype supports train/test folders only.")
-    for name in ("enable_film", "dynamic_fusion", "score_condition", "amp"):
+    optimizer_names = {"sgd": "SGD", "adamw": "AdamW"}
+    if not isinstance(config.optimizer, str) or config.optimizer.lower() not in optimizer_names:
+        raise ValueError("optimizer must be SGD or AdamW.")
+    object.__setattr__(config, "optimizer", optimizer_names[config.optimizer.lower()])
+    for name in ("enable_film", "dynamic_fusion", "score_condition", "amp", "nesterov"):
         if type(getattr(config, name)) is not bool:
             raise ValueError(f"{name} must be a boolean.")
     for name in ("epochs", "batch", "val_batch", "max_det"):
@@ -239,6 +250,10 @@ def load_config(path: str | Path, **overrides: Any) -> ExperimentConfig:
         value = getattr(config, name)
         if isinstance(value, bool) or not math.isfinite(value) or value <= 0:
             raise ValueError(f"{name} must be positive and finite.")
+    for name in ("lr_final_ratio", "momentum", "warmup_momentum"):
+        value = getattr(config, name)
+        if isinstance(value, bool) or not math.isfinite(value) or not 0 < value < 1:
+            raise ValueError(f"{name} must lie in (0,1).")
     if len(config.input_size) != 2 or any(type(size) is not int or size < 32 or size % 32 for size in config.input_size):
         raise ValueError("input_size must contain two positive multiples of 32.")
     if not 0 < config.conf < 1 or not 0 < config.nms_iou < 1:

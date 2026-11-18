@@ -164,30 +164,58 @@ class PairedOBBTrainer(OBBTrainer):
         )
 
     def build_optimizer(
-        self, model: nn.Module, name: str = "AdamW", lr: float = 0.001,
-        momentum: float = 0.9, decay: float = 0.0001, iterations: int = 100000,
-    ) -> torch.optim.AdamW:
-        """Apply module-aware groups instead of native optimizer=auto heuristics.
+        self, model: nn.Module, name: str = "SGD", lr: float = 0.01,
+        momentum: float = 0.937, decay: float = 0.0005, iterations: int = 100000,
+    ) -> torch.optim.Optimizer:
+        """Apply the experiment's SGD or AdamW recipe with audited groups.
 
         Args:
             model: Paired model.
-            name: Must be AdamW.
-            lr: Native API value; exact group rates come from the experiment.
-            momentum: Reserved native API argument.
-            decay: Must match the declared unscaled matrix decay (nbs=batch).
+            name: Native optimizer name; must match the experiment exactly.
+            lr: Native ``lr0`` value; must equal the new-parameter learning rate.
+            momentum: Native momentum; checked for SGD and ignored by AdamW.
+            decay: Effective matrix decay after native batch scaling.
             iterations: Reserved native API argument.
 
         Returns:
-            Fully audited AdamW parameter groups.
+            Fully audited optimizer parameter groups.
+
+        Raises:
+            ValueError: A native argument differs from the explicit experiment.
+                Silent optimizer fallback is intentionally forbidden.
         """
-        if name != "AdamW" or abs(decay - self.experiment.weight_decay) > 1e-12:
-            raise ValueError("Optimizer or effective-batch scaling differs from the explicit experiment.")
+        checks = [("optimizer", name, self.experiment.optimizer),
+                  ("lr0", lr, self.experiment.lr_new),
+                  ("weight_decay", decay, self.experiment.weight_decay)]
+        if self.experiment.optimizer == "SGD":
+            checks.append(("momentum", momentum, self.experiment.momentum))
+        changed = [(key, observed, expected) for key, observed, expected in checks
+                   if (observed != expected if isinstance(observed, str)
+                       else abs(observed - expected) > 1e-12)]
+        if changed:
+            raise ValueError(f"Native optimizer arguments differ from the experiment: {changed}.")
         optimizer = build_optimizer(model, self.experiment)
-        summary = [
-            {key: value for key, value in group.items() if key != "params"}
-            for group in optimizer.param_groups
-        ]
-        (self.save_dir / "optimizer_groups.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+        summary = {
+            "optimizer": type(optimizer).__name__,
+            "hyperparameters": {
+                "lr_pretrained": self.experiment.lr_pretrained,
+                "lr_new": self.experiment.lr_new,
+                "lr_final_ratio": self.experiment.lr_final_ratio,
+                "momentum": self.experiment.momentum if self.experiment.optimizer == "SGD" else None,
+                "warmup_momentum": (self.experiment.warmup_momentum
+                                    if self.experiment.optimizer == "SGD" else None),
+                "nesterov": self.experiment.nesterov if self.experiment.optimizer == "SGD" else None,
+                "weight_decay": self.experiment.weight_decay,
+                "warmup_iterations": self.experiment.warmup_iterations,
+            },
+            "groups": [
+                {key: value for key, value in group.items() if key != "params"}
+                for group in optimizer.param_groups
+            ],
+        }
+        (self.save_dir / "optimizer_groups.json").write_text(
+            json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
         return optimizer
 
     def _setup_train(self, world_size: int) -> None:
@@ -208,9 +236,11 @@ class PairedOBBTrainer(OBBTrainer):
         self.amp = bool(requested_amp and self.device.type == "cuda")
         self.scaler = torch.amp.GradScaler("cuda", enabled=self.amp)
         self.args.warmup_epochs = self.experiment.warmup_iterations / len(self.train_loader)
-        LOGGER.info(f"Actual paired input={self.experiment.input_size}; effective batch={self.experiment.batch}; "
-                    f"warmup={self.experiment.warmup_iterations} iterations; AMP={self.amp}. "
-                    "No auxiliary AMP-check weights downloaded.")
+        LOGGER.info(
+            f"Actual paired input={self.experiment.input_size}; effective batch={self.experiment.batch}; "
+            f"optimizer={self.experiment.optimizer}; warmup={self.experiment.warmup_iterations} iterations; "
+            f"AMP={self.amp}. No auxiliary AMP-check weights downloaded."
+        )
 
     def optimizer_step(self) -> None:
         """Clip unscaled gradients and log an AMP overflow rather than hiding it.
