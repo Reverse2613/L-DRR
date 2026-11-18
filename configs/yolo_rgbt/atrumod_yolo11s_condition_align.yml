@@ -1,0 +1,3 @@
+__include__: [./atrumod_yolo11s_base.yml]
+# Full requested migration; train independently from the same detector weights.
+output_dir: ./outputs/yolo11s_rgbt_atrumod_condition_align_seed0

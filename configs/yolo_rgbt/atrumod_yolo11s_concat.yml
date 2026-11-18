@@ -1,0 +1,5 @@
+__include__: [./atrumod_yolo11s_base.yml]
+# Simple dual-stream baseline; native compatible neck/head are pretrained.
+output_dir: ./outputs/yolo11s_rgbt_atrumod_concat_seed0
+variant: concat
+alignment: "off"

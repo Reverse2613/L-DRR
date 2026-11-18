@@ -1,0 +1,30 @@
+# 第二原型：当前B＋微校准（12像素）＋联合增益，验证。
+# 继续沿用B的36轮、ImageNet预训练、无增强、batch8、原AdamW/调度/AMP/EMA。
+# 从ImageNet独立训练；不使用-r/-t加载正在训练的微校准组。
+__include__: ['./rtdetrv2_obb_hgnetv2_s_atrumod_joint_clip512_rgb_ir_micro_align.yml']
+
+output_dir: ./outputs/rtdetrv2_obb_hgnetv2_s_atrumod_joint_clip512_align_gain
+
+RTv4_PG:
+  backbone: DualHGNetv2_PG_GainComp
+
+# 使用新注册类，下面镜像当前母体选项，防止复制时丢失CLIP或微校准设置。
+# GPU检查逐项对比这块与继承的DualHGNetv2_PG；其他训练设置无需重复。
+DualHGNetv2_PG_GainComp:
+  name: B0
+  return_idx: [1, 2, 3]
+  freeze_at: -1
+  freeze_norm: False
+  use_lab: True
+  pretrained: True
+  local_model_dir: ./pretrain/hgnetv2/
+  anchor_dir: ./pretrain/condition_anchors/clip_vit_b16_joint_512
+  texts_path: ./configs/dataset/atrumod_condition_texts.json
+  condition_prior: frozen_clip_joint
+  condition_mode: real
+  enable_exchange: False
+  dynamic_fusion: True
+  enable_rgb_ir_alignment: True
+  alignment_max_shift_px: 12.0
+  enable_joint_gain: True
+  enable_complement: False 

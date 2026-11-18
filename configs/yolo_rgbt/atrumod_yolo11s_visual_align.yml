@@ -1,0 +1,5 @@
+__include__: [./atrumod_yolo11s_base.yml]
+# Same offset-head structure; no telemetry descriptor, global 12-pixel bound.
+# ATR data is supported here; a DroneVehicle/VLM data adapter is not implemented.
+output_dir: ./outputs/yolo11s_rgbt_atrumod_visual_align_seed0
+alignment: visual

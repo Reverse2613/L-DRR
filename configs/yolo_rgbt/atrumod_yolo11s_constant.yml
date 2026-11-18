@@ -1,0 +1,4 @@
+__include__: [./atrumod_yolo11s_base.yml]
+# Same full carrier and real geometry; only environment lookup uses row zero.
+output_dir: ./outputs/yolo11s_rgbt_atrumod_constant_seed0
+condition_mode: constant

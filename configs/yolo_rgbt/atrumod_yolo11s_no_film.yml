@@ -1,0 +1,3 @@
+__include__: [./atrumod_yolo11s_base.yml]
+output_dir: ./outputs/yolo11s_rgbt_atrumod_no_film_seed0
+enable_film: false

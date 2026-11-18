@@ -1,0 +1,10 @@
+# Install the CUDA-compatible PyTorch/torchvision pair separately first.
+# Use a separate environment; do not change the existing rio-detr environment.
+ultralytics==8.3.0
+numpy==1.26.4
+opencv-python==4.10.0.84
+ultralytics-thop==2.0.18
+py-cpuinfo==9.0.0
+seaborn==0.13.2
+PyYAML>=6.0
+numba>=0.60,<0.69

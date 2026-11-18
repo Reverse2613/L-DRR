@@ -1,0 +1,4 @@
+__include__: [./atrumod_yolo11s_base.yml]
+# Carrier: environment CLIP512 + FiLM + dynamic scoring, no spatial alignment.
+output_dir: ./outputs/yolo11s_rgbt_atrumod_condition_seed0
+alignment: "off"
